@@ -1,0 +1,12 @@
+node_modules/
+.venv/
+venv/
+__pycache__/
+*.pyc
+.env
+.env.local
+.env.*.local
+.DS_Store
+backend/email_logs/
+backend/history/
+backend/db/active_ruleset.json

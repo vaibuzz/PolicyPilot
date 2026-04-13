@@ -1,0 +1,43 @@
+{
+  "_comment": "Payload 2 — Amount escalation. Invoice 115000 vs PO 100000 = 15% deviation → ESCALATE_TO_FINANCE_CONTROLLER",
+  "Invoice_table": {
+    "invoice_number": "INV-2024-002",
+    "date": "2024-03-15",
+    "grand_total": 115000,
+    "taxable_amount": 97458,
+    "tax_amount": 17542,
+    "cgst": 8771,
+    "sgst": 8771,
+    "igst": null,
+    "supply_type": "intra",
+    "place_of_supply": "Maharashtra",
+    "po_number": "PO-2024-001",
+    "line_items": [
+      { "item": "Dell Laptop XPS 15", "qty": 2, "rate": 52500 },
+      { "item": "Logitech MX Keys Keyboard", "qty": 4, "rate": 3500 }
+    ]
+  },
+  "PO_table": {
+    "po_number": "PO-2024-001",
+    "amount": 100000,
+    "date": "2024-03-01",
+    "line_items": [
+      { "item": "Dell Laptop XPS 15", "qty": 2, "rate": 45000 },
+      { "item": "Logitech MX Keys Keyboard", "qty": 4, "rate": 3500 }
+    ]
+  },
+  "GRN_table": {
+    "grn_number": "GRN-2024-002",
+    "date": "2024-03-10",
+    "po_number": "PO-2024-001",
+    "line_items": [
+      { "item": "Dell Laptop XPS 15", "qty": 2 },
+      { "item": "Logitech MX Keys Keyboard", "qty": 4 }
+    ]
+  },
+  "Vendor_table": {
+    "gstin": "27ABCDE1234F1Z5",
+    "pan": "ABCDE1234F",
+    "watchlist": false
+  }
+}

@@ -1,0 +1,276 @@
+{
+  "rules": [
+    {
+      "rule_id": "AP-APR-001",
+      "source_clause": "Section 1.1",
+      "description": "Invoices up to INR 1,00,000 must be automatically approved if all validations pass",
+      "condition": {
+        "operator": "LTE",
+        "left": "Invoice_table.amount",
+        "right": 100000.0,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "AUTO_APPROVE",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices up to INR 1,00,000 must be automatically approved if all validations pass",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-002",
+      "source_clause": "Section 1.2",
+      "description": "Invoices between INR 1,00,001 and INR 10,00,000 must be sent to the Department Head for approval",
+      "condition": {
+        "operator": "BETWEEN",
+        "left": "Invoice_table.amount",
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": 100001.0,
+        "upper": 1000000.0,
+        "operands": null
+      },
+      "action": "ROUTE_TO_DEPT_HEAD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices between INR 1,00,001 and INR 10,00,000 must be sent to the Department Head for approval",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-003",
+      "source_clause": "Section 1.3",
+      "description": "Invoices between INR 10,00,001 and INR 50,00,000 must be escalated to the Finance Controller for review",
+      "condition": {
+        "operator": "BETWEEN",
+        "left": "Invoice_table.amount",
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": 1000001.0,
+        "upper": 5000000.0,
+        "operands": null
+      },
+      "action": "ESCALATE_TO_FINANCE_CONTROLLER",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices between INR 10,00,001 and INR 50,00,000 must be escalated to the Finance Controller for review",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-004",
+      "source_clause": "Section 1.4",
+      "description": "Invoices above INR 50,00,000 must be escalated to the CFO with mandatory audit documentation",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.amount",
+        "right": 5000000.0,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ESCALATE_TO_CFO",
+      "requires_justification": true,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices above INR 50,00,000 must be escalated to the CFO with mandatory audit documentation",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-005",
+      "source_clause": "Section 1.5",
+      "description": "If the vendor is on the Watch List, all invoices regardless of amount must be sent to the Department Head for approval",
+      "condition": {
+        "operator": "EQ",
+        "left": "Vendor_table.watchlist",
+        "right": 1.0,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ROUTE_TO_DEPT_HEAD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the vendor is on the Watch List, all invoices regardless of amount must be sent to the Department Head for approval",
+      "conflict_with": [
+        "AP-APR-001"
+      ],
+      "suggested_fix": {
+        "rule_id": "AP-APR-001-REVISED",
+        "source_clause": "Section 1.1, Section 1.5",
+        "description": "Invoices up to INR 1,00,000 from vendors not on the watchlist must be automatically approved if all validations pass",
+        "condition": {
+          "operator": "AND",
+          "left": {
+            "operator": "LTE",
+            "left": "Invoice_table.amount",
+            "right": 100000.0
+          },
+          "right": {
+            "operator": "NEQ",
+            "left": "Vendor_table.watchlist",
+            "right": true
+          }
+        },
+        "action": "AUTO_APPROVE",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "Invoices up to INR 1,00,000 from vendors not on the watchlist must be automatically approved if all validations pass",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 1",
+        "schema_warnings": []
+      },
+      "review_status": "pending",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-REJ-001",
+      "source_clause": "Section 2.1",
+      "description": "If the invoice date is later than today's date the invoice must be rejected",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.date",
+        "right": "today()",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice date is later than today's date the invoice must be rejected",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-REJ-002",
+      "source_clause": "Section 2.2",
+      "description": "If the invoice is missing the Purchase Order number the invoice must be rejected",
+      "condition": {
+        "operator": "IS_NULL",
+        "left": "Invoice_table.po_number",
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice is missing the Purchase Order number the invoice must be rejected",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-REJ-003",
+      "source_clause": "Section 2.3",
+      "description": "If the vendor GSTIN on the invoice does not match the vendor master the invoice must be rejected",
+      "condition": {
+        "operator": "NEQ",
+        "left": "Invoice_table.gstin",
+        "right": "Vendor_table.gstin",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the vendor GSTIN on the invoice does not match the vendor master the invoice must be rejected",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    }
+  ],
+  "conflicts": [
+    {
+      "conflict_id": "CONF-001",
+      "rule_id_a": "AP-APR-001",
+      "rule_id_b": "AP-APR-005",
+      "explanation": "The auto-approve rule for invoices up to INR 1,00,000 conflicts with the watchlist vendor override rule because a vendor on the watchlist with an invoice under INR 1,00,000 would be both auto-approved and sent to the Department Head for approval.",
+      "suggested_fix": {
+        "rule_id": "AP-APR-001-REVISED",
+        "source_clause": "Section 1.1, Section 1.5",
+        "description": "Invoices up to INR 1,00,000 from vendors not on the watchlist must be automatically approved if all validations pass",
+        "condition": {
+          "operator": "AND",
+          "left": {
+            "operator": "LTE",
+            "left": "Invoice_table.amount",
+            "right": 100000.0
+          },
+          "right": {
+            "operator": "NEQ",
+            "left": "Vendor_table.watchlist",
+            "right": true
+          }
+        },
+        "action": "AUTO_APPROVE",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "Invoices up to INR 1,00,000 from vendors not on the watchlist must be automatically approved if all validations pass",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 1",
+        "schema_warnings": []
+      }
+    }
+  ],
+  "summary": {
+    "total_rules": 8,
+    "high_confidence": 8,
+    "medium_confidence": 0,
+    "low_confidence": 0,
+    "conflicts_found": 1
+  }
+}

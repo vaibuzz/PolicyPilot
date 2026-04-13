@@ -1,0 +1,7 @@
+# Optional: Full Docling support (downloads PyTorch ~2 GB, takes 10-20 min)
+# Only install this if you need Docling-quality PDF parsing.
+# The system works without it — PyMuPDF fallback is always active.
+#
+# Run: pip install -r requirements-docling.txt
+
+docling==2.14.0

@@ -1,0 +1,15 @@
+# Core dependencies — install these always
+# Run: pip install -r requirements.txt
+
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+openai==1.55.0
+PyMuPDF==1.25.1
+python-multipart==0.0.20
+sendgrid==6.11.0
+pydantic==2.10.3
+python-dotenv==1.0.1
+httpx==0.27.2
+aiofiles==24.1.0
+pytest==8.3.3
+pytest-asyncio==0.24.0

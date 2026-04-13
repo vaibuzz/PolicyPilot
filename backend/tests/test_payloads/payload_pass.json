@@ -1,0 +1,43 @@
+{
+  "_comment": "Payload 1 — All rules pass. Invoice < 1L, vendor not watchlisted, 3-way match OK.",
+  "Invoice_table": {
+    "invoice_number": "INV-2024-001",
+    "date": "2024-03-15",
+    "grand_total": 98000,
+    "taxable_amount": 83051,
+    "tax_amount": 14949,
+    "cgst": 7474.5,
+    "sgst": 7474.5,
+    "igst": null,
+    "supply_type": "intra",
+    "place_of_supply": "Maharashtra",
+    "po_number": "PO-2024-001",
+    "line_items": [
+      { "item": "Dell Laptop XPS 15", "qty": 2, "rate": 45000 },
+      { "item": "Logitech MX Keys Keyboard", "qty": 4, "rate": 3500 }
+    ]
+  },
+  "PO_table": {
+    "po_number": "PO-2024-001",
+    "amount": 100000,
+    "date": "2024-03-01",
+    "line_items": [
+      { "item": "Dell Laptop XPS 15", "qty": 2, "rate": 45000 },
+      { "item": "Logitech MX Keys Keyboard", "qty": 4, "rate": 3500 }
+    ]
+  },
+  "GRN_table": {
+    "grn_number": "GRN-2024-001",
+    "date": "2024-03-10",
+    "po_number": "PO-2024-001",
+    "line_items": [
+      { "item": "Dell Laptop XPS 15", "qty": 2 },
+      { "item": "Logitech MX Keys Keyboard", "qty": 4 }
+    ]
+  },
+  "Vendor_table": {
+    "gstin": "27ABCDE1234F1Z5",
+    "pan": "ABCDE1234F",
+    "watchlist": false
+  }
+}

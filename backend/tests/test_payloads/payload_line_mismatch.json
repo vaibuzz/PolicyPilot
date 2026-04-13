@@ -1,0 +1,40 @@
+{
+  "_comment": "Payload 3 — Line item qty mismatch. Invoice qty=12, PO qty=10 → should trigger HOLD",
+  "Invoice_table": {
+    "invoice_number": "INV-2024-003",
+    "date": "2024-03-15",
+    "grand_total": 98000,
+    "taxable_amount": 83051,
+    "tax_amount": 14949,
+    "cgst": 7474.5,
+    "sgst": 7474.5,
+    "igst": null,
+    "supply_type": "intra",
+    "place_of_supply": "Maharashtra",
+    "po_number": "PO-2024-003",
+    "line_items": [
+      { "item": "HP LaserJet Pro Toner", "qty": 12, "rate": 2500 }
+    ]
+  },
+  "PO_table": {
+    "po_number": "PO-2024-003",
+    "amount": 25000,
+    "date": "2024-03-01",
+    "line_items": [
+      { "item": "HP LaserJet Pro Toner", "qty": 10, "rate": 2500 }
+    ]
+  },
+  "GRN_table": {
+    "grn_number": "GRN-2024-003",
+    "date": "2024-03-10",
+    "po_number": "PO-2024-003",
+    "line_items": [
+      { "item": "HP LaserJet Pro Toner", "qty": 10 }
+    ]
+  },
+  "Vendor_table": {
+    "gstin": "27ZYXWV9876G1Z9",
+    "pan": "ZYXWV9876G",
+    "watchlist": false
+  }
+}

@@ -1,0 +1,1046 @@
+{
+  "rules": [
+    {
+      "rule_id": "AP-TWM-001",
+      "source_clause": "Section 1.1",
+      "description": "Flag invoices with missing mandatory fields and route to AP Clerk for review",
+      "condition": {
+        "operator": "OR",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "IS_NULL",
+            "left": "Invoice_table.invoice_number",
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "IS_NULL",
+            "left": "Invoice_table.date",
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "IS_NULL",
+            "left": "Vendor_table.gstin",
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "IS_NULL",
+            "left": "Invoice_table.po_number",
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "IS_NULL",
+            "left": "Invoice_table.grand_total",
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          }
+        ]
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Every invoice received must contain the following mandatory fields: Invoice Number, Invoice Date, Vendor GSTIN, Purchase Order Number, and Grand Total Amount. If any mandatory field is missing, the invoice shall be flagged as \"Incomplete\" and routed to the AP Clerk for manual review.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-002",
+      "source_clause": "Section 1.2",
+      "description": "Reject invoices with future dates",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.date",
+        "right": "current_date",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice date is in the future (i.e., later than the current processing date), the invoice must be rejected with reason \"Future-Dated Invoice Not Permitted.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-003",
+      "source_clause": "Section 1.3",
+      "description": "Require approval from AP Manager for handwritten invoices above INR 50,000",
+      "condition": {
+        "operator": "AND",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "GT",
+            "left": "Invoice_table.amount",
+            "right": 50000.0,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "EQ",
+            "left": "Invoice_table.handwritten",
+            "right": 1.0,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          }
+        ]
+      },
+      "action": "ROUTE_TO_AP_CLERK",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Handwritten invoices above INR 50,000 require additional approval from the AP Manager before booking.",
+      "conflict_with": [
+        "AP-APR-001"
+      ],
+      "suggested_fix": {
+        "rule_id": "AP-APR-001-REVISED",
+        "source_clause": "Section 5.1 revised",
+        "description": "Auto-approve handwritten invoices up to INR 50,000",
+        "condition": {
+          "operator": "AND",
+          "left": null,
+          "right": null,
+          "threshold": null,
+          "direction": null,
+          "lower": null,
+          "upper": null,
+          "operands": [
+            {
+              "operator": "LTE",
+              "left": "Invoice_table.amount",
+              "right": 50000,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            },
+            {
+              "operator": "EQ",
+              "left": "Invoice_table.handwritten",
+              "right": true,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            }
+          ]
+        },
+        "action": "AUTO_APPROVE",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "Handwritten invoices up to INR 50,000 are auto-approved if all validations pass.",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 5 revised",
+        "schema_warnings": []
+      },
+      "review_status": "pending",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-004",
+      "source_clause": "Section 1.4",
+      "description": "Flag potential duplicate invoices",
+      "condition": {
+        "operator": "EQ",
+        "left": "Invoice_table.invoice_number",
+        "right": "existing_invoice_number",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Duplicate invoice detection: If an invoice with the same Invoice Number and Vendor GSTIN already exists in the system, the new invoice must be flagged as \"Potential Duplicate\" and held for review.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-005",
+      "source_clause": "Section 2.1",
+      "description": "Reject invoices with invalid PO references",
+      "condition": {
+        "operator": "IS_NULL",
+        "left": "PO_table.po_number",
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Every invoice must reference a valid Purchase Order (PO). If the PO Number on the invoice does not match any active PO in the system, the invoice shall be rejected with reason \"Invalid PO Reference.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-006",
+      "source_clause": "Section 2.2(a)",
+      "description": "Auto-approve invoices with amounts within +/- 1% of PO amount",
+      "condition": {
+        "operator": "BETWEEN",
+        "left": "Invoice_table.grand_total",
+        "right": "PO_table.amount",
+        "threshold": null,
+        "direction": null,
+        "lower": "PO_table.amount * 0.99",
+        "upper": "PO_table.amount * 1.01",
+        "operands": null
+      },
+      "action": "AUTO_APPROVE",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the Invoice Total Amount is within +/- 1% of the PO Amount (tolerance), the invoice is auto-approved for booking.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-007",
+      "source_clause": "Section 2.2(b)",
+      "description": "Route invoices with amounts exceeding PO amount by 1-10% to Department Head for approval",
+      "condition": {
+        "operator": "AND",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "GT",
+            "left": "Invoice_table.amount",
+            "right": "PO_table.amount * 1.01",
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "LT",
+            "left": "Invoice_table.amount",
+            "right": "PO_table.amount * 1.10",
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          }
+        ]
+      },
+      "action": "ROUTE_TO_DEPT_HEAD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the Invoice Total Amount exceeds the PO Amount by more than 1% but less than 10%, the invoice is routed to the Department Head for approval.",
+      "conflict_with": [
+        "AP-TWM-006"
+      ],
+      "suggested_fix": null,
+      "review_status": "pending",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-008",
+      "source_clause": "Section 2.2(c)",
+      "description": "Escalate invoices with amounts exceeding PO amount by 10% or more to Finance Controller with justification note",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.amount",
+        "right": "PO_table.amount * 1.10",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ESCALATE_TO_FINANCE_CONTROLLER",
+      "requires_justification": true,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the Invoice Total Amount exceeds the PO Amount by 10% or more, the invoice is escalated to the Finance Controller with a mandatory justification note.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-009",
+      "source_clause": "Section 2.2(d)",
+      "description": "Flag invoices with amounts less than PO amount by more than 5%",
+      "condition": {
+        "operator": "LT",
+        "left": "Invoice_table.amount",
+        "right": "PO_table.amount * 0.95",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the Invoice Total Amount is less than the PO Amount by more than 5%, a flag \"Under-Invoiced \u2014 Verify Partial Delivery\" must be raised.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-010",
+      "source_clause": "Section 2.3(b)",
+      "description": "Hold invoices with quantities exceeding PO quantities",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.qty",
+        "right": "PO_table.qty",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "HOLD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If Invoice Quantity > PO Quantity for any line item, the invoice is held with flag \"Quantity Exceeds PO.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-011",
+      "source_clause": "Section 2.3(c)",
+      "description": "Route invoices with rate mismatches to Procurement for verification",
+      "condition": {
+        "operator": "NEQ",
+        "left": "Invoice_table.rate",
+        "right": "PO_table.rate",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ROUTE_TO_PROCUREMENT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If Invoice Unit Rate differs from the PO Unit Rate by more than 2%, the line item is flagged \"Rate Mismatch\" and routed to Procurement for verification.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-012",
+      "source_clause": "Section 3.1",
+      "description": "Hold invoices without valid GRNs",
+      "condition": {
+        "operator": "IS_NULL",
+        "left": "GRN_table.grn_number",
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "HOLD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "For goods-based POs, a valid GRN must exist before the invoice can be booked. If no GRN is found for the referenced PO, the invoice is held with status \"Awaiting GRN.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 3",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-013",
+      "source_clause": "Section 3.2(a)",
+      "description": "Accept invoices with quantities less than or equal to GRN quantities",
+      "condition": {
+        "operator": "LTE",
+        "left": "Invoice_table.qty",
+        "right": "GRN_table.qty",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "AUTO_APPROVE",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If Invoice Quantity <= GRN Quantity, the match is accepted.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 3",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-014",
+      "source_clause": "Section 3.2(b)",
+      "description": "Reject invoices with quantities exceeding GRN quantities",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.qty",
+        "right": "GRN_table.qty",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If Invoice Quantity > GRN Quantity, the invoice is rejected with reason \"Invoice Qty Exceeds Received Qty. Refer Section 2.3(b) for PO-level escalation.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 3",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-015",
+      "source_clause": "Section 3.3",
+      "description": "Flag invoices with GRN dates after invoice dates",
+      "condition": {
+        "operator": "GT",
+        "left": "GRN_table.date",
+        "right": "Invoice_table.date",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "GRN Date must be on or before the Invoice Date. If the GRN Date is after the Invoice Date, the invoice is flagged with \"GRN Post-Dated \u2014 Verify Receipt Timeline.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 3",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TAX-001",
+      "source_clause": "Section 4.1",
+      "description": "Reject invoices with GSTIN mismatches",
+      "condition": {
+        "operator": "NEQ",
+        "left": "Vendor_table.gstin",
+        "right": "Invoice_table.gstin",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Vendor GSTIN Validation: The vendor's GSTIN on the invoice must match the GSTIN registered in the vendor master. If there is a mismatch, the invoice is rejected with reason \"GSTIN Mismatch \u2014 Update Vendor Master or Verify Invoice.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 4",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TAX-002",
+      "source_clause": "Section 4.2",
+      "description": "Hold invoices with PAN-GSTIN mismatches",
+      "condition": {
+        "operator": "NEQ",
+        "left": "Vendor_table.pan",
+        "right": "Invoice_table.gstin_pan",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "HOLD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "PAN-GSTIN Cross Check: The PAN embedded in the vendor's GSTIN (characters 3\u201312) must match the PAN on file. Failure triggers a compliance hold.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 4",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TAX-003",
+      "source_clause": "Section 4.3(a)",
+      "description": "Flag invoices with tax calculation errors",
+      "condition": {
+        "operator": "NEQ",
+        "left": "Invoice_table.taxable_amount + Invoice_table.tax_amount",
+        "right": "Invoice_table.grand_total",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Total Taxable Amount + Total Tax Amount must equal the Grand Total (within INR 1 tolerance for rounding).",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 4",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TAX-004",
+      "source_clause": "Section 4.3(b)",
+      "description": "Flag invoices with intra-state supply and missing CGST/SGST",
+      "condition": {
+        "operator": "AND",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "EQ",
+            "left": "Invoice_table.supply_type",
+            "right": "intra-state",
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "OR",
+            "left": null,
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": [
+              {
+                "operator": "IS_NULL",
+                "left": "Invoice_table.cgst",
+                "right": null,
+                "threshold": null,
+                "direction": null,
+                "lower": null,
+                "upper": null,
+                "operands": null
+              },
+              {
+                "operator": "IS_NULL",
+                "left": "Invoice_table.sgst",
+                "right": null,
+                "threshold": null,
+                "direction": null,
+                "lower": null,
+                "upper": null,
+                "operands": null
+              }
+            ]
+          }
+        ]
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the supply is intra-state, CGST and SGST must each be present and equal.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 4",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TAX-005",
+      "source_clause": "Section 4.3(c)",
+      "description": "Flag invoices with inter-state supply and missing IGST",
+      "condition": {
+        "operator": "AND",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "EQ",
+            "left": "Invoice_table.supply_type",
+            "right": "inter-state",
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "IS_NULL",
+            "left": "Invoice_table.igst",
+            "right": null,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          }
+        ]
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the supply is inter-state, IGST must be present and CGST/SGST must be zero.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 4",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TAX-006",
+      "source_clause": "Section 4.4",
+      "description": "Flag invoices with place of supply mismatches",
+      "condition": {
+        "operator": "NEQ",
+        "left": "Invoice_table.place_of_supply",
+        "right": "buyer_gstin_state_code",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Place of Supply must match the state code in the buyer's GSTIN. If mismatched, flag \"Place of Supply Mismatch.\"",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 4",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-001",
+      "source_clause": "Section 5.1",
+      "description": "Auto-approve invoices up to INR 1,00,000",
+      "condition": {
+        "operator": "LTE",
+        "left": "Invoice_table.amount",
+        "right": 100000.0,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "AUTO_APPROVE",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices up to INR 1,00,000: Auto-approved if all validations in Sections 1\u20134 pass.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 5",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-002",
+      "source_clause": "Section 5.2",
+      "description": "Route invoices between INR 1,00,001 and INR 10,00,000 to Department Head for approval",
+      "condition": {
+        "operator": "AND",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "GT",
+            "left": "Invoice_table.amount",
+            "right": 100000.0,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "LTE",
+            "left": "Invoice_table.amount",
+            "right": 1000000.0,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          }
+        ]
+      },
+      "action": "ROUTE_TO_DEPT_HEAD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices between INR 1,00,001 and INR 10,00,000: Require approval from the Department Head.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 5",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-003",
+      "source_clause": "Section 5.3",
+      "description": "Route invoices between INR 10,00,001 and INR 50,00,000 to Finance Controller for approval",
+      "condition": {
+        "operator": "AND",
+        "left": null,
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": [
+          {
+            "operator": "GT",
+            "left": "Invoice_table.amount",
+            "right": 1000000.0,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          },
+          {
+            "operator": "LTE",
+            "left": "Invoice_table.amount",
+            "right": 5000000.0,
+            "threshold": null,
+            "direction": null,
+            "lower": null,
+            "upper": null,
+            "operands": null
+          }
+        ]
+      },
+      "action": "ESCALATE_TO_FINANCE_CONTROLLER",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices between INR 10,00,001 and INR 50,00,000: Require approval from the Finance Controller.",
+      "conflict_with": [
+        "AP-APR-002"
+      ],
+      "suggested_fix": {
+        "rule_id": "AP-APR-002-REVISED",
+        "source_clause": "Section 5.2 revised",
+        "description": "Route invoices between INR 1,00,001 and INR 10,00,000 to Department Head for approval, ensuring no overlap with other rules",
+        "condition": {
+          "operator": "AND",
+          "left": null,
+          "right": null,
+          "threshold": null,
+          "direction": null,
+          "lower": null,
+          "upper": null,
+          "operands": [
+            {
+              "operator": "GT",
+              "left": "Invoice_table.amount",
+              "right": 100000,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            },
+            {
+              "operator": "LTE",
+              "left": "Invoice_table.amount",
+              "right": 1000000,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            }
+          ]
+        },
+        "action": "ROUTE_TO_DEPT_HEAD",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "Invoices between INR 1,00,001 and INR 10,00,000 are routed to the Department Head for approval.",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 5 revised",
+        "schema_warnings": []
+      },
+      "review_status": "pending",
+      "section": "Section 5",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-004",
+      "source_clause": "Section 5.4",
+      "description": "Route invoices above INR 50,00,000 to CFO for approval",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.amount",
+        "right": 5000000.0,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ESCALATE_TO_CFO",
+      "requires_justification": true,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "Invoices above INR 50,00,000: Require approval from the CFO. Subject to additional audit trail documentation per Section 6.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 5",
+      "schema_warnings": []
+    }
+  ],
+  "conflicts": [
+    {
+      "conflict_id": "CONF-001",
+      "rule_id_a": "AP-APR-001",
+      "rule_id_b": "AP-TWM-003",
+      "severity": "medium",
+      "explanation": "For an invoice amount of INR 75,000 that is handwritten, rule AP-APR-001 would auto-approve it because it's below INR 1,00,000, but rule AP-TWM-003 would route it to the AP Clerk for approval because it's above INR 50,000 and handwritten. These actions are not directly contradictory but represent different approval paths.",
+      "suggested_fix": {
+        "rule_id": "AP-APR-001-REVISED",
+        "source_clause": "Section 5.1 revised",
+        "description": "Auto-approve handwritten invoices up to INR 50,000",
+        "condition": {
+          "operator": "AND",
+          "left": null,
+          "right": null,
+          "threshold": null,
+          "direction": null,
+          "lower": null,
+          "upper": null,
+          "operands": [
+            {
+              "operator": "LTE",
+              "left": "Invoice_table.amount",
+              "right": 50000,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            },
+            {
+              "operator": "EQ",
+              "left": "Invoice_table.handwritten",
+              "right": true,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            }
+          ]
+        },
+        "action": "AUTO_APPROVE",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "Handwritten invoices up to INR 50,000 are auto-approved if all validations pass.",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 5 revised",
+        "schema_warnings": []
+      }
+    },
+    {
+      "conflict_id": "CONF-002",
+      "rule_id_a": "AP-TWM-006",
+      "rule_id_b": "AP-TWM-007",
+      "severity": "low",
+      "explanation": "For an invoice with an amount 5% above the PO amount, rule AP-TWM-006 would auto-approve it because it's within the +/- 1% tolerance, but rule AP-TWM-007 would route it to the Department Head for approval because it exceeds the PO amount by more than 1%. These actions are compatible as the first rule's condition is more specific and intended for a narrower range of invoices.",
+      "suggested_fix": null
+    },
+    {
+      "conflict_id": "CONF-003",
+      "rule_id_a": "AP-APR-002",
+      "rule_id_b": "AP-APR-003",
+      "severity": "medium",
+      "explanation": "For an invoice amount of INR 12,00,000, rule AP-APR-002 would route it to the Department Head for approval, but rule AP-APR-003 would route it to the Finance Controller. These actions represent different approval paths based on the invoice amount.",
+      "suggested_fix": {
+        "rule_id": "AP-APR-002-REVISED",
+        "source_clause": "Section 5.2 revised",
+        "description": "Route invoices between INR 1,00,001 and INR 10,00,000 to Department Head for approval, ensuring no overlap with other rules",
+        "condition": {
+          "operator": "AND",
+          "left": null,
+          "right": null,
+          "threshold": null,
+          "direction": null,
+          "lower": null,
+          "upper": null,
+          "operands": [
+            {
+              "operator": "GT",
+              "left": "Invoice_table.amount",
+              "right": 100000,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            },
+            {
+              "operator": "LTE",
+              "left": "Invoice_table.amount",
+              "right": 1000000,
+              "threshold": null,
+              "direction": null,
+              "lower": null,
+              "upper": null,
+              "operands": null
+            }
+          ]
+        },
+        "action": "ROUTE_TO_DEPT_HEAD",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "Invoices between INR 1,00,001 and INR 10,00,000 are routed to the Department Head for approval.",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 5 revised",
+        "schema_warnings": []
+      }
+    }
+  ],
+  "summary": {
+    "total_rules": 25,
+    "high_confidence": 25,
+    "medium_confidence": 0,
+    "low_confidence": 0,
+    "conflicts_found": 3
+  }
+}

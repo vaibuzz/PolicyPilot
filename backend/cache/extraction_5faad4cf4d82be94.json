@@ -1,0 +1,221 @@
+{
+  "rules": [
+    {
+      "rule_id": "AP-TWM-001",
+      "source_clause": "Section 1.1",
+      "description": "Invoice line item quantity exceeding PO quantity must be held immediately.",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.qty",
+        "right": "PO_table.qty",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "HOLD",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice quantity exceeds the PO quantity for any single line item the invoice must be held immediately.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-002",
+      "source_clause": "Section 1.2",
+      "description": "Invoice line item quantity exceeding GRN quantity must be rejected.",
+      "condition": {
+        "operator": "GT",
+        "left": "Invoice_table.qty",
+        "right": "GRN_table.qty",
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "REJECT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice quantity exceeds the GRN received quantity the invoice must be rejected.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-TWM-003",
+      "source_clause": "Section 1.3",
+      "description": "Invoice line item without corresponding PO line item must be held and routed to Procurement.",
+      "condition": {
+        "operator": "IS_NULL",
+        "left": "PO_table.po_number",
+        "right": null,
+        "threshold": null,
+        "direction": null,
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ROUTE_TO_PROCUREMENT",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If a line item exists on the invoice but has no corresponding line item on the Purchase Order the invoice must be held and routed to Procurement for verification.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 1",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-001",
+      "source_clause": "Section 2.1",
+      "description": "Invoice unit rate differing from PO unit rate by more than 2% must be flagged and routed to Procurement.",
+      "condition": {
+        "operator": "PCT_DIFF",
+        "left": "Invoice_table.rate",
+        "right": "PO_table.rate",
+        "threshold": 2.0,
+        "direction": "above",
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "FLAG",
+      "requires_justification": false,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice unit rate for any line item differs from the PO unit rate by more than 2% the line item must be flagged and routed to Procurement for verification.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-APR-002",
+      "source_clause": "Section 2.2",
+      "description": "Invoice unit rate differing from PO unit rate by more than 10% must be escalated to Finance Controller with justification.",
+      "condition": {
+        "operator": "PCT_DIFF",
+        "left": "Invoice_table.rate",
+        "right": "PO_table.rate",
+        "threshold": 10.0,
+        "direction": "above",
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ESCALATE_TO_FINANCE_CONTROLLER",
+      "requires_justification": true,
+      "notification": null,
+      "confidence_score": 0.95,
+      "raw_text": "If the invoice unit rate for any line item differs from the PO unit rate by more than 10% the invoice must be escalated to the Finance Controller with a mandatory justification note.",
+      "conflict_with": [
+        "AP-APR-001"
+      ],
+      "suggested_fix": {
+        "rule_id": "AP-APR-003",
+        "source_clause": "Section 2.1, Section 2.2",
+        "description": "Invoice unit rate differing from PO unit rate must be flagged, routed to Procurement, or escalated to Finance Controller based on the percentage difference.",
+        "condition": {
+          "operator": "PCT_DIFF",
+          "left": "Invoice_table.rate",
+          "right": "PO_table.rate",
+          "threshold": 2,
+          "direction": "above"
+        },
+        "action": "FLAG_AND_ROUTE_TO_PROCUREMENT",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "If the invoice unit rate for any line item differs from the PO unit rate by more than 2% the line item must be flagged and routed to Procurement for verification. If the difference is more than 10%, the invoice must be escalated to the Finance Controller with a mandatory justification note.",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 2",
+        "schema_warnings": []
+      },
+      "review_status": "pending",
+      "section": "Section 2",
+      "schema_warnings": []
+    },
+    {
+      "rule_id": "AP-DEV-001",
+      "source_clause": "Section 3.2",
+      "description": "Critical deviation detection must trigger email to Finance Controller and Internal Audit within 15 minutes.",
+      "condition": {
+        "operator": "PCT_DIFF",
+        "left": "Invoice_table.rate",
+        "right": "PO_table.rate",
+        "threshold": 10.0,
+        "direction": "above",
+        "lower": null,
+        "upper": null,
+        "operands": null
+      },
+      "action": "ACTION_MISSING_PLEASE_UPDATE",
+      "requires_justification": false,
+      "notification": {
+        "type": "email",
+        "to": [
+          "Finance Controller",
+          "Internal Audit"
+        ],
+        "within_minutes": 15
+      },
+      "confidence_score": 0.9,
+      "raw_text": "If a critical deviation is detected as defined in Section 2.2 an immediate email must be sent to the Finance Controller and the Internal Audit team simultaneously within 15 minutes.",
+      "conflict_with": [],
+      "suggested_fix": null,
+      "review_status": "accepted",
+      "section": "Section 3",
+      "schema_warnings": []
+    }
+  ],
+  "conflicts": [
+    {
+      "conflict_id": "CONF-001",
+      "rule_id_a": "AP-APR-001",
+      "rule_id_b": "AP-APR-002",
+      "explanation": "Both rules fire when the invoice unit rate differs from the PO unit rate, but they have different thresholds and actions. Rule AP-APR-001 flags and routes to Procurement when the difference is more than 2%, while rule AP-APR-002 escalates to Finance Controller with justification when the difference is more than 10%. However, when the difference is between 2% and 10%, both rules would fire, but the actions are not contradictory as one is an escalation and the other is a flag. But when the difference is more than 10%, both rules would fire, and the actions are contradictory as one requires justification and the other does not.",
+      "suggested_fix": {
+        "rule_id": "AP-APR-003",
+        "source_clause": "Section 2.1, Section 2.2",
+        "description": "Invoice unit rate differing from PO unit rate must be flagged, routed to Procurement, or escalated to Finance Controller based on the percentage difference.",
+        "condition": {
+          "operator": "PCT_DIFF",
+          "left": "Invoice_table.rate",
+          "right": "PO_table.rate",
+          "threshold": 2,
+          "direction": "above"
+        },
+        "action": "FLAG_AND_ROUTE_TO_PROCUREMENT",
+        "requires_justification": false,
+        "notification": null,
+        "confidence_score": 0.95,
+        "raw_text": "If the invoice unit rate for any line item differs from the PO unit rate by more than 2% the line item must be flagged and routed to Procurement for verification. If the difference is more than 10%, the invoice must be escalated to the Finance Controller with a mandatory justification note.",
+        "conflict_with": [],
+        "suggested_fix": null,
+        "review_status": "pending",
+        "section": "Section 2",
+        "schema_warnings": []
+      }
+    }
+  ],
+  "summary": {
+    "total_rules": 6,
+    "high_confidence": 6,
+    "medium_confidence": 0,
+    "low_confidence": 0,
+    "conflicts_found": 1
+  }
+}

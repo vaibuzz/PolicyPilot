@@ -1,0 +1,2 @@
+# This directory stores the persisted active ruleset (active_ruleset.json).
+# The actual JSON file is git-ignored. This .gitkeep ensures the folder is tracked.
