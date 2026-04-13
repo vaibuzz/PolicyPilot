@@ -5,7 +5,7 @@ POST /extract-documents
 Accepts up to 3 file uploads (Invoice PDF, PO PDF, GRN PDF).
 1. Runs Docling/PyMuPDF on all PDFs in parallel (asyncio)
 2. Extracts field vocabulary from active ruleset
-3. Single Claude call with all document content + field vocab
+3. Single LLM call (Anthropic Claude primary, Groq fallback) with all document content + field vocab
 4. Python normalization pass (strip Indian comma formatting)
 Returns: merged DocumentPayload JSON
 """
@@ -18,7 +18,6 @@ import re
 import tempfile
 from typing import Any, Dict, List, Optional
 
-from openai import OpenAI
 from fastapi import APIRouter, File, Form, HTTPException, UploadFile
 from pydantic import BaseModel
 
@@ -101,7 +100,10 @@ Field extraction rules:
 7. For line items, structure them exactly in the array format above. The line item description MUST use the key "item". Use the identical item name string across Invoice, PO, and GRN tables.
 8. If a whole document type was NOT uploaded (e.g. no PO provided), set that entire table to null — never return an empty object {}.
 9. For computed fields like "gstin_pan" (characters 3-12 of GSTIN): derive the value yourself from the raw GSTIN string present in the document.
-10. Return ONLY raw valid JSON. No markdown code fences (```), no explanation, no extra text."""
+10. CRITICAL — Always extract ALL date fields from EVERY document, even if not explicitly listed in the vocabulary. PO documents typically have "PO Issue Date" and "PO Validity Date" — these MUST be returned under PO_table as "date" (the issue date) in YYYY-MM-DD format. Similarly, always extract "taxable_amount" or "Sub-Total (Taxable Amount)" from invoices when visible.
+11. Return ONLY raw valid JSON. No markdown code fences (```), no explanation, no extra text.
+
+Return a raw JSON object only matching the exact structure specified. Do not add any fields not shown in the structure. Do not wrap in markdown. The first character must be the opening brace."""
 
 
 # ---------------------------------------------------------------------------
@@ -256,10 +258,6 @@ async def extract_documents(
     and return a merged DocumentPayload aligned with the active ruleset's
     field vocabulary.
     """
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise HTTPException(status_code=500, detail="GROQ_API_KEY not set.")
-
     if not any([invoice, po, grn]):
         raise HTTPException(status_code=400, detail="At least one document must be uploaded.")
 
@@ -316,27 +314,29 @@ async def extract_documents(
 
     user_message = f"{vocab_block}\n\n{doc_sections}"
 
-    # ---- Single LLM call (sync client in thread to avoid AsyncOpenAI issues) ---
+    # ---- Single LLM call (Anthropic primary, Groq fallback) -----------------
+    from modules.extraction import get_llm_client, call_llm_with_fallback
+
     logger.info(f"Calling LLM for document extraction. Docs: {documents_received}")
 
-    def _call_groq() -> str:
-        client = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            temperature=0,
-            max_tokens=4096,
-            messages=[
-                {"role": "system", "content": DOC_EXTRACTION_SYSTEM_PROMPT},
-                {"role": "user", "content": user_message},
-            ],
+    primary_type, primary_client, fallback_client = get_llm_client()
+
+    def _call_llm() -> str:
+        response_text, _ = call_llm_with_fallback(
+            primary_client, primary_type, fallback_client,
+            system_prompt=DOC_EXTRACTION_SYSTEM_PROMPT,
+            user_message=user_message,
+            max_tokens=8000,
+            response_format_json=False,
         )
-        return response.choices[0].message.content.strip()
+        return response_text
 
     try:
-        raw = await asyncio.to_thread(_call_groq)
+        raw = await asyncio.to_thread(_call_llm)
+        raw = raw.strip()
     except Exception as e:
-        logger.error(f"Groq API Error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Groq API Error: {str(e)}")
+        logger.error(f"LLM API Error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"LLM API Error: {str(e)}")
     # Strip accidental code fences
     if raw.startswith("```"):
         lines = raw.split("\n")
@@ -406,6 +406,19 @@ async def extract_documents(
                     except (TypeError, ValueError):
                         pass
 
+        # --- Derive taxable_amount if null ------------------------------------
+        # If the LLM missed the Sub-Total / Taxable Amount, we can compute it
+        # from grand_total - tax_amount.  This is needed for AP-TAX-003.
+        if inv.get("taxable_amount") is None:
+            gt = inv.get("grand_total")
+            ta = inv.get("tax_amount")
+            if gt is not None and ta is not None:
+                try:
+                    inv["taxable_amount"] = float(gt) - float(ta)
+                    logger.debug(f"Derived taxable_amount = grand_total - tax_amount: {inv['taxable_amount']}")
+                except (TypeError, ValueError):
+                    pass
+
         # --- FIX 1a: Mirror grand_total → amount if amount is null -----------
         # Many rules reference Invoice_table.amount, but the LLM often puts the
         # total into grand_total. Mirror the value so both fields are available.
@@ -457,6 +470,36 @@ async def extract_documents(
                     logger.debug(f"Computed PO_table.amount from line items: {po_total}")
                 except (TypeError, ValueError):
                     logger.warning("Could not compute PO_table.amount from line items")
+
+        # --- Derive PO_table.date from grand_total-based line item dates ------
+        # If PO date is still null, try extracting from known PO amount date
+        # (the LLM sometimes misses the PO Issue Date header)
+        if po.get("date") is None and po.get("grand_total") is None:
+            # Mirror amount → grand_total for PO too
+            if po.get("amount") is not None:
+                po["grand_total"] = po["amount"]
+                logger.debug("Mirrored PO_table.amount → grand_total")
+
+    # ---- Compute invoice_po_age_days for AP-TWM-004 --------------------------
+    # This derived field lets rules check "invoice submitted > 90 days after PO"
+    # without requiring the LLM to produce a computed field.
+    inv_obj = normalized.get("Invoice_table")
+    po_obj  = normalized.get("PO_table")
+    if isinstance(inv_obj, dict) and isinstance(po_obj, dict):
+        inv_date_str = inv_obj.get("date")
+        po_date_str  = po_obj.get("date")
+        if inv_date_str and po_date_str:
+            import datetime
+            for fmt in ("%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"):
+                try:
+                    inv_date = datetime.datetime.strptime(str(inv_date_str).strip(), fmt).date()
+                    po_date  = datetime.datetime.strptime(str(po_date_str).strip(), fmt).date()
+                    age_days = (inv_date - po_date).days
+                    inv_obj["invoice_po_age_days"] = age_days
+                    logger.debug(f"Computed invoice_po_age_days = {age_days}")
+                    break
+                except ValueError:
+                    continue
 
     # ---- FIX 1c & 4a: Inject derived fields into Vendor_table ----------------
     vendor = normalized.get("Vendor_table")

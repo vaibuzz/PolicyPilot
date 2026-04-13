@@ -2,7 +2,7 @@
 Module 2 — Rule Extraction and Conflict Detection
 POST /extract-rules
 
-Makes two sequential Groq API calls:
+Makes two sequential LLM API calls (Anthropic Claude primary, Groq fallback):
   Call 1 — Rule extraction from policy Markdown
   Call 2 — Conflict detection across extracted rules
 
@@ -17,7 +17,7 @@ import os
 import re
 import time
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Tuple
 
 from openai import OpenAI
 from fastapi import APIRouter, HTTPException
@@ -35,17 +35,117 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 # ---------------------------------------------------------------------------
-# Groq client (lazy init so startup doesn't crash if key is missing at import)
+# Model constants
 # ---------------------------------------------------------------------------
 
-def _get_client() -> OpenAI:
-    api_key = os.environ.get("GROQ_API_KEY")
-    if not api_key:
-        raise HTTPException(
-            status_code=500,
-            detail="GROQ_API_KEY environment variable is not set.",
+ANTHROPIC_MODEL = "claude-sonnet-4-6"
+GROQ_MODEL = "llama-3.3-70b-versatile"
+
+# ---------------------------------------------------------------------------
+# LLM client setup — Anthropic primary, Groq fallback
+# ---------------------------------------------------------------------------
+
+def get_llm_client() -> Tuple[str, Any, Any]:
+    """
+    Returns (primary_type, primary_client, fallback_client).
+    primary_type is 'anthropic' or 'groq'.
+    fallback_client is None if no fallback is available.
+    """
+    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
+    groq_key = os.environ.get("GROQ_API_KEY")
+
+    if anthropic_key:
+        import anthropic
+        primary = anthropic.Anthropic(api_key=anthropic_key)
+        fallback = None
+        if groq_key:
+            fallback = OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key)
+        return ("anthropic", primary, fallback)
+
+    if groq_key:
+        logger.warning("[LLM] Anthropic key not found, falling back to Groq")
+        return ("groq", OpenAI(base_url="https://api.groq.com/openai/v1", api_key=groq_key), None)
+
+    raise HTTPException(
+        status_code=500,
+        detail="Neither ANTHROPIC_API_KEY nor GROQ_API_KEY is set. At least one LLM key is required.",
+    )
+
+
+def call_llm(
+    client: Any,
+    client_type: str,
+    system_prompt: str,
+    user_message: str,
+    model: str | None = None,
+    max_tokens: int = 6000,
+    response_format_json: bool = False,
+) -> str:
+    """
+    Unified LLM call abstraction. Works with both Anthropic and Groq clients.
+    Returns the plain string content of the response.
+    """
+    if client_type == "anthropic":
+        chosen_model = model or ANTHROPIC_MODEL
+        response = client.messages.create(
+            model=chosen_model,
+            max_tokens=max_tokens,
+            temperature=0,
+            system=system_prompt,
+            messages=[{"role": "user", "content": user_message}],
         )
-    return OpenAI(base_url="https://api.groq.com/openai/v1", api_key=api_key)
+        return response.content[0].text
+    else:
+        # Groq (OpenAI-compatible)
+        chosen_model = model or GROQ_MODEL
+        kwargs = {
+            "model": chosen_model,
+            "temperature": 0,
+            "max_tokens": max_tokens,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_message},
+            ],
+        }
+        if response_format_json:
+            kwargs["response_format"] = {"type": "json_object"}
+        response = client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content
+
+
+def call_llm_with_fallback(
+    primary_client: Any,
+    primary_type: str,
+    fallback_client: Any,
+    system_prompt: str,
+    user_message: str,
+    max_tokens: int = 6000,
+    response_format_json: bool = False,
+) -> Tuple[str, bool]:
+    """
+    Call primary LLM. If it fails and a fallback exists, retry with fallback.
+    Returns (response_text, is_fallback_used).
+    """
+    try:
+        response_text = call_llm(
+            primary_client, primary_type, system_prompt, user_message,
+            max_tokens=max_tokens, response_format_json=response_format_json,
+        )
+        return response_text, False
+    except Exception as e:
+        if fallback_client is None:
+            raise
+        fallback_type = "groq" if primary_type == "anthropic" else "anthropic"
+        logger.warning(f"[LLM FALLBACK] Primary LLM failed: {e}. Retrying with fallback.")
+        try:
+            response_text = call_llm(
+                fallback_client, fallback_type, system_prompt, user_message,
+                max_tokens=max_tokens, response_format_json=response_format_json,
+            )
+            return response_text, True
+        except Exception as e2:
+            logger.error(f"[LLM FALLBACK] Fallback also failed.")
+            raise e2
 
 
 # ---------------------------------------------------------------------------
@@ -109,12 +209,9 @@ For every rule you extract, return an object with exactly these fields:
 - condition: a nested object describing when this rule fires (see CONDITION STRUCTURE below)
 - action: one of these exact uppercase strings only: AUTO_APPROVE, ROUTE_TO_AP_CLERK, ROUTE_TO_DEPT_HEAD, ESCALATE_TO_FINANCE_CONTROLLER, ESCALATE_TO_CFO, HOLD, REJECT, FLAG, ROUTE_TO_PROCUREMENT, COMPLIANCE_HOLD. Do NOT invent new action strings.
 - requires_justification: boolean, true only if the policy explicitly says a justification note or documentation is required
-- notification: object with {type: "email", to: [recipient roles], within_minutes: integer}. Set to null if no notification is mentioned for this rule.
+- notification: object with {type: "email", to: [recipient roles], within_minutes: integer or null}. Set to null if no notification is mentioned for this rule.
 - confidence_score: float 0–1. Use >= 0.95 for unambiguous rules. Use 0.7–0.94 if there is ambiguity or you resolved a cross-reference. Use < 0.7 if you were uncertain about the condition or action.
 - raw_text: the exact sentence(s) from the source document, copied verbatim
-- conflict_with: always set to empty array []
-- suggested_fix: always set to null
-- review_status: always set to "pending"
 
 == CONDITION STRUCTURE ==
 
@@ -132,7 +229,7 @@ Every condition node has this shape:
 
 CRITICAL RULE for AND/OR: When operator is AND or OR, place the sub-conditions inside the "operands" array. Do NOT put condition objects inside "left" or "right" — those fields must be null for AND/OR nodes. This is the single most important structural rule.
 
-Set unused fields to null. Do not omit them.
+Only include fields that are relevant to the operator. Omit fields that do not apply (e.g. omit threshold, direction, lower, upper, operands from simple GT/LT/EQ nodes).
 
 == FIELD VOCABULARY ==
 
@@ -159,7 +256,6 @@ If any clause says "Refer Section X.Y(Z)" or "as defined in Section X", look up 
 - Do NOT return markdown, explanations, or commentary — only the JSON object
 - Do NOT use string values like "100000" for numeric fields — use the number 100000
 - Do NOT set boolean fields like watchlist to integer 1 or 0 — use true or false
-- Do NOT omit null fields from the condition object — include all fields set to null
 
 == EXAMPLE ==
 
@@ -173,24 +269,18 @@ Correct output rule:
   "condition": {
     "operator": "GT",
     "left": "Invoice_table.amount",
-    "right": 5000000,
-    "threshold": null,
-    "direction": null,
-    "lower": null,
-    "upper": null,
-    "operands": null
+    "right": 5000000
   },
   "action": "ESCALATE_TO_CFO",
   "requires_justification": true,
   "notification": null,
   "confidence_score": 0.95,
-  "raw_text": "Invoices above INR 50,00,000 must be escalated to the CFO with mandatory audit documentation.",
-  "conflict_with": [],
-  "suggested_fix": null,
-  "review_status": "pending"
+  "raw_text": "Invoices above INR 50,00,000 must be escalated to the CFO with mandatory audit documentation."
 }
 
-Return a JSON object with a single key "rules" containing a valid JSON array of these rule objects. No explanations or markdown."""
+Return a JSON object with a single key "rules" containing a valid JSON array of these rule objects. No explanations or markdown.
+
+Return your response as a raw JSON object only. Do not wrap it in markdown code fences. Do not include any explanation before or after the JSON. The first character of your response must be the opening brace of the object."""
 
 CONFLICT_DETECTION_SYSTEM_PROMPT = """You are an expert policy auditor specialising in logical contradiction analysis. You will receive a JSON array of business rules extracted from a policy document. Your task is to identify genuine conflicts between rule pairs using rigorous logical reasoning.
 
@@ -245,7 +335,9 @@ Rule A: "Invoices within 1% of PO amount → AUTO_APPROVE"
 Rule B: "Invoices under PO amount by more than 5% → FLAG"
 These cover non-overlapping ranges (within 1% vs more than 5% below). No single input can trigger both. This is NOT a conflict.
 
-Return a JSON object with key "conflicts" containing a JSON array of conflict objects. No markdown or explanations outside the JSON. If no genuine conflicts exist, return an empty array."""
+Return a JSON object with key "conflicts" containing a JSON array of conflict objects. No markdown or explanations outside the JSON. If no genuine conflicts exist, return an empty array.
+
+Return a raw JSON object only. If no conflicts are found return {"conflicts": []}. The first character must be the opening brace."""
 
 
 # ---------------------------------------------------------------------------
@@ -492,24 +584,43 @@ def _safe_parse_json_array(raw: str, call_name: str) -> List[Dict[str, Any]]:
 
     # ---- Attempt 2: salvage complete objects from a truncated array -----
     logger.warning(f"{call_name}: JSON malformed/truncated — attempting recovery...")
-    # Walk backwards from the end to find the last complete '}'
-    # then close the array and retry
-    last_brace = text.rfind("}")
-    if last_brace != -1:
-        repaired = text[: last_brace + 1].rstrip().rstrip(",") + "\n]"
-        # If text didn't start with '[', wrap it
-        if not repaired.lstrip().startswith("["):
-            repaired = "[" + repaired
-        try:
-            result = json.loads(repaired)
-            if isinstance(result, list) and len(result) > 0:
-                logger.warning(
-                    f"{call_name}: Recovered {len(result)} complete objects "
-                    f"from truncated response (original length={len(text)} chars)."
-                )
-                return result
-        except (json.JSONDecodeError, ValueError):
-            pass
+    
+    # Iterate backwards over all '}' to try matching a valid cut-off point
+    cursor = len(text)
+    while cursor > 0:
+        cursor = text.rfind("}", 0, cursor)
+        if cursor == -1:
+            break
+        
+        snippet = text[: cursor + 1].rstrip().rstrip(",")
+        
+        # Test various closing combos (raw array, wrapped array, nested cut-off)
+        for suffix in ["", "\n]", "\n]\n}", "\n}\n]", "\n}\n]\n}"]:
+            repaired = snippet + suffix
+            
+            # Wrap in array if it doesn't even look like json array or obj
+            if not repaired.lstrip().startswith(("{", "[")):
+                repaired = "[" + repaired + "]"
+                
+            try:
+                result = json.loads(repaired)
+                # Success if we can extract a non-empty list!
+                if isinstance(result, dict):
+                    inner = result.get("rules") or result.get("conflicts")
+                    if isinstance(inner, list) and len(inner) > 0:
+                        logger.warning(
+                            f"{call_name}: Recovered {len(inner)} complete objects "
+                            f"from truncated response (original length={len(text)} chars)."
+                        )
+                        return inner
+                elif isinstance(result, list) and len(result) > 0:
+                    logger.warning(
+                        f"{call_name}: Recovered {len(result)} complete objects "
+                        f"from truncated response (original length={len(text)} chars)."
+                    )
+                    return result
+            except (json.JSONDecodeError, ValueError):
+                pass
 
     # ---- Give up --------------------------------------------------------
     logger.error(f"Failed to parse {call_name} response.\nRaw (first 800 chars):\n{text[:800]}")
@@ -731,25 +842,26 @@ def _validate_with_warnings(
 
 
 # ---------------------------------------------------------------------------
-# Sync helper — runs the two blocking Groq calls, safe for asyncio.to_thread
+# Sync helper — runs the two blocking LLM calls, safe for asyncio.to_thread
 # ---------------------------------------------------------------------------
 
-def _run_extraction_sync(markdown: str, client: OpenAI) -> ExtractionResponse:
-    """Blocking function: two sequential Groq calls. Called via asyncio.to_thread."""
+def _run_extraction_sync(
+    markdown: str,
+    primary_client: Any,
+    primary_type: str,
+    fallback_client: Any,
+) -> ExtractionResponse:
+    """Blocking function: two sequential LLM calls. Called via asyncio.to_thread."""
 
     # ---- Call 1: Rule Extraction ----------------------------------------
-    logger.info("Starting Groq Call 1 — Rule Extraction")
-    call1 = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        temperature=0,
-        max_tokens=6000, 
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": EXTRACTION_SYSTEM_PROMPT},
-            {"role": "user", "content": markdown},
-        ],
+    logger.info(f"Starting LLM Call 1 — Rule Extraction (provider: {primary_type})")
+    raw_rules_json, fallback_used_1 = call_llm_with_fallback(
+        primary_client, primary_type, fallback_client,
+        system_prompt=EXTRACTION_SYSTEM_PROMPT,
+        user_message=markdown,
+        max_tokens=8192,
+        response_format_json=(primary_type == "groq"),
     )
-    raw_rules_json = call1.choices[0].message.content
     logger.info(f"Call 1 complete. Raw length: {len(raw_rules_json)} chars")
 
     rules_list = _safe_parse_json_array(raw_rules_json, "Rule Extraction (Call 1)")
@@ -776,26 +888,23 @@ def _run_extraction_sync(markdown: str, client: OpenAI) -> ExtractionResponse:
     # ---- Step 4: Schema validation pass (warn, do not drop) ---------------
     _validate_with_warnings(rules_list, Rule, "Rule Extraction (Call 1)")
 
-    # ---- Replenish Token Bucket -----------------------------------------
-    # Groq's free tier is 12,000 Tokens/Min (replenishes 200 tokens/sec).
-    # Since Call 1 uses ~6,000 tokens, we pause briefly to refill the 
-    # bucket so Call 2 stays under the rolling 1-minute limit.
-    logger.info("Delaying for 15 seconds to replenish Groq free-tier tokens...")
-    time.sleep(15)
+    # ---- Delay between calls (only needed for Groq free-tier rate limits) -
+    if primary_type == "groq":
+        logger.info("Delaying for 15 seconds to replenish Groq free-tier tokens...")
+        time.sleep(15)
+    else:
+        # Small courtesy delay for Anthropic (not strictly needed)
+        time.sleep(2)
 
     # ---- Call 2: Conflict Detection -------------------------------------
-    logger.info("Starting Groq Call 2 — Conflict Detection")
-    call2 = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        temperature=0,
-        max_tokens=5000,
-        response_format={"type": "json_object"},
-        messages=[
-            {"role": "system", "content": CONFLICT_DETECTION_SYSTEM_PROMPT},
-            {"role": "user", "content": json.dumps(rules_list)},
-        ],
+    logger.info(f"Starting LLM Call 2 — Conflict Detection (provider: {primary_type})")
+    raw_conflicts_json, fallback_used_2 = call_llm_with_fallback(
+        primary_client, primary_type, fallback_client,
+        system_prompt=CONFLICT_DETECTION_SYSTEM_PROMPT,
+        user_message=json.dumps(rules_list),
+        max_tokens=6000,
+        response_format_json=(primary_type == "groq"),
     )
-    raw_conflicts_json = call2.choices[0].message.content
     logger.info(f"Call 2 complete. Raw length: {len(raw_conflicts_json)} chars")
 
     conflicts_list = _safe_parse_json_array(raw_conflicts_json, "Conflict Detection (Call 2)")
@@ -830,6 +939,7 @@ def _run_extraction_sync(markdown: str, client: OpenAI) -> ExtractionResponse:
         rules=validated_rules,
         conflicts=validated_conflicts,
         summary=summary,
+        fallback_active=(fallback_used_1 or fallback_used_2),
     )
 
 
@@ -840,7 +950,7 @@ def _run_extraction_sync(markdown: str, client: OpenAI) -> ExtractionResponse:
 @router.post("/extract-rules", response_model=ExtractionResponse)
 async def extract_rules(body: ExtractRulesRequest) -> ExtractionResponse:
     """
-    Two sequential Groq API calls:
+    Two sequential LLM API calls (Anthropic Claude primary, Groq fallback):
       1. Extract rules from policy Markdown
       2. Detect conflicts across extracted rules
     Returns merged result.
@@ -855,8 +965,11 @@ async def extract_rules(body: ExtractRulesRequest) -> ExtractionResponse:
             return ExtractionResponse.model_validate(cached)
 
         # ---- Cache miss: run real extraction -----------------------------
-        client = _get_client()
-        result = await asyncio.to_thread(_run_extraction_sync, body.markdown, client)
+        primary_type, primary_client, fallback_client = get_llm_client()
+        result = await asyncio.to_thread(
+            _run_extraction_sync, body.markdown,
+            primary_client, primary_type, fallback_client,
+        )
 
         # ---- Persist result for future runs ------------------------------
         _save_cache(body.markdown, result.model_dump(mode="json"))

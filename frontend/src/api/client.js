@@ -4,7 +4,7 @@ const BASE = import.meta.env.VITE_API_URL || '/api'
 
 const api = axios.create({
   baseURL: BASE,
-  timeout: 120000, // 2 min — Claude calls can be slow
+  timeout: 300000, // 5 min — Claude tasks (like extracting 25 rules) can take up to 3 minutes
 })
 
 export const uploadDocument = (file) => {
@@ -39,3 +39,6 @@ export const sendReport = (executionResults, email, invoiceNumber) =>
     email,
     invoice_number: invoiceNumber ?? null,
   })
+
+export const generateRuleGraph = (rules) =>
+  api.post('/generate-rule-graph', { rules })

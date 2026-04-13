@@ -1,3 +1,12 @@
+---
+title: PolicyPilot
+emoji: 🛡️
+colorFrom: indigo
+colorTo: purple
+sdk: docker
+pinned: false
+---
+
 # PolicyPilot — Financial Compliance & Audit Engine
 
 **PolicyPilot** is an autonomous, human-in-the-loop financial compliance system. It converts unstructured corporate policies (PDF/MD/TXT) into a deterministic, programmatic rule engine using AI, enabling real-time, automated auditing of Invoices, Purchase Orders, and GRNs. 

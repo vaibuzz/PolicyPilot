@@ -22,6 +22,7 @@ from modules.finalization import router as finalization_router
 from modules.rule_engine import router as rule_engine_router
 from modules.doc_extraction import router as doc_extraction_router
 from modules.reporting import router as reporting_router
+from modules.rule_graph import router as rule_graph_router
 
 app = FastAPI(
     title="PolicyPilot",
@@ -53,6 +54,7 @@ app.include_router(finalization_router, tags=["Module 3 — Finalization"])
 app.include_router(rule_engine_router, tags=["Module 4 — Rule Engine"])
 app.include_router(doc_extraction_router, tags=["Module 5 — Document Extraction"])
 app.include_router(reporting_router, tags=["Module 6 — Reporting"])
+app.include_router(rule_graph_router, tags=["Module 7 — Rule Graph"])
 
 
 @app.get("/", tags=["Health"])

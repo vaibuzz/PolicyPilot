@@ -14,12 +14,17 @@ export default {
       },
       animation: {
         'slide-in': 'slideIn 0.3s ease-out',
+        'slide-in-left': 'slideInLeft 0.3s ease-out',
         'fade-in': 'fadeIn 0.2s ease-out',
         'pulse-slow': 'pulse 3s cubic-bezier(0.4, 0, 0.6, 1) infinite',
       },
       keyframes: {
         slideIn: {
           '0%': { transform: 'translateX(100%)' },
+          '100%': { transform: 'translateX(0)' },
+        },
+        slideInLeft: {
+          '0%': { transform: 'translateX(-100%)' },
           '100%': { transform: 'translateX(0)' },
         },
         fadeIn: {

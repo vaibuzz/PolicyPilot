@@ -9,4 +9,7 @@ __pycache__/
 .DS_Store
 backend/email_logs/
 backend/history/
+backend/cache/
 backend/db/active_ruleset.json
+backend/_cleanup.py
+frontend/.env

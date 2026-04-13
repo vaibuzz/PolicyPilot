@@ -4,6 +4,7 @@
 fastapi==0.115.5
 uvicorn[standard]==0.32.1
 openai==1.55.0
+anthropic>=0.39.0
 PyMuPDF==1.25.1
 python-multipart==0.0.20
 sendgrid==6.11.0

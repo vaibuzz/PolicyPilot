@@ -44,7 +44,7 @@ class RuleCondition(BaseModel):
     right: Optional[Union[str, float]] = None
     # PCT_DIFF-specific
     threshold: Optional[float] = None
-    direction: Optional[Literal["above", "below"]] = None
+    direction: Optional[Literal["above", "below", "within", "cap"]] = None
     # BETWEEN-specific
     lower: Optional[Union[str, float]] = None
     upper: Optional[Union[str, float]] = None
@@ -60,7 +60,7 @@ RuleCondition.model_rebuild()
 class NotificationConfig(BaseModel):
     type: Literal["email"] = "email"
     to: List[str]
-    within_minutes: int
+    within_minutes: Optional[int] = None
 
 
 class Rule(BaseModel):
@@ -126,6 +126,7 @@ class ExtractionResponse(BaseModel):
     rules: List[Rule]
     conflicts: List[ConflictObject]
     summary: ExtractionSummary
+    fallback_active: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -159,6 +160,7 @@ class LineItem(BaseModel):
 class InvoiceTable(BaseModel):
     invoice_number: Optional[str] = None
     date: Optional[str] = None
+    amount: Optional[float] = None          # mirrored from grand_total if absent
     grand_total: Optional[float] = None
     taxable_amount: Optional[float] = None
     tax_amount: Optional[float] = None
@@ -172,6 +174,7 @@ class InvoiceTable(BaseModel):
     has_deviation: Optional[bool] = None
     has_compliance_failure: Optional[bool] = None
     tax_calculation_error: Optional[float] = None
+    invoice_po_age_days: Optional[int] = None   # computed by doc_extraction
     line_items: Optional[List[LineItem]] = None
 
     model_config = {"extra": "allow"}
@@ -302,5 +305,5 @@ class SendReportRequest(BaseModel):
 
 class SendReportResponse(BaseModel):
     report: Report
-    delivery_method: Literal["sendgrid", "console_log"]
+    delivery_method: Literal["sendgrid", "smtp", "console_log"]
     message: str

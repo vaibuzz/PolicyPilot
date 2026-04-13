@@ -85,6 +85,65 @@ def _normalize_and_or_structure(rules: List[Dict[str, Any]]) -> None:
                 _normalize_and_or_node(fix_cond)
 
 
+def _normalize_pct_diff_conditions(rules: List[Dict[str, Any]]) -> None:
+    """
+    Universal pre-execution normalizer for PCT_DIFF direction semantics.
+
+    Fixes two common LLM extraction ambiguities:
+
+    Pattern 1 — WITHIN TOLERANCE:
+        A standalone PCT_DIFF with direction=null whose parent rule description
+        contains 'within' should fire when the difference is WITHIN the threshold,
+        not when it exceeds it. Sets direction='within'.
+
+    Pattern 2 — CEILING CAP inside AND:
+        An AND compound containing PCT_DIFF(direction=above, T1) paired with
+        PCT_DIFF(direction=below, T2) on the same left/right fields should
+        be read as 'exceeds T1% but less than T2%'. The 'below' operand is
+        a ceiling cap, not a directional check. Sets direction='cap'.
+    """
+    for rule in rules:
+        condition = rule.get("condition")
+        if not isinstance(condition, dict):
+            continue
+        description = (rule.get("description") or "").lower()
+
+        # --- Pattern 1: standalone PCT_DIFF with 'within' semantics ----------
+        if condition.get("operator") == "PCT_DIFF":
+            if condition.get("direction") is None and "within" in description:
+                condition["direction"] = "within"
+                logger.debug(
+                    f"Rule {rule.get('rule_id')}: set PCT_DIFF direction='within' "
+                    f"(detected 'within' in description)"
+                )
+
+        # --- Pattern 2: AND of above + below PCT_DIFF → cap ------------------
+        if condition.get("operator") == "AND":
+            operands = condition.get("operands") or []
+            pct_above_ops = []
+            pct_below_ops = []
+            for op in operands:
+                if not isinstance(op, dict) or op.get("operator") != "PCT_DIFF":
+                    continue
+                d = op.get("direction")
+                if d == "above":
+                    pct_above_ops.append(op)
+                elif d == "below":
+                    pct_below_ops.append(op)
+
+            # If we have matched above + below pairs on the same fields, fix below→cap
+            for below_op in pct_below_ops:
+                for above_op in pct_above_ops:
+                    if (below_op.get("left") == above_op.get("left") and
+                        below_op.get("right") == above_op.get("right")):
+                        below_op["direction"] = "cap"
+                        logger.debug(
+                            f"Rule {rule.get('rule_id')}: rewrote PCT_DIFF "
+                            f"direction='below' → 'cap' (ceiling in AND compound)"
+                        )
+                        break
+
+
 # ---------------------------------------------------------------------------
 # Expression-aware field path resolver
 # ---------------------------------------------------------------------------
@@ -93,6 +152,48 @@ _EXPR_RE = re.compile(
     # FIX 5: Support arbitrary right side (scalar or another field name)
     r"^([A-Za-z_][A-Za-z0-9_.]*)\s*([\+\-\*\/])\s*(.+)$"
 )
+
+# Matches abs(...) wrapper
+_ABS_RE = re.compile(r"^abs\((.+)\)$", re.IGNORECASE)
+
+
+def _resolve_compound_expression(expr: str, payload_dict: Dict[str, Any]) -> Any:
+    """
+    Evaluate a compound arithmetic expression like:
+      'Invoice_table.taxable_amount + Invoice_table.tax_amount - Invoice_table.grand_total'
+    Tokenises by + and - operators, resolves each operand, and computes the result.
+    """
+    # Split by + and - while keeping the operators as separate tokens
+    tokens = re.split(r'\s*([+-])\s*', expr.strip())
+    if not tokens:
+        return None
+
+    # First token is always a field/value
+    result = _resolve_field(tokens[0].strip(), payload_dict)
+    if result is None:
+        return None
+    try:
+        result = float(result)
+    except (TypeError, ValueError):
+        return None
+
+    i = 1
+    while i < len(tokens) - 1:
+        op = tokens[i]
+        operand = _resolve_field(tokens[i + 1].strip(), payload_dict)
+        if operand is None:
+            return None
+        try:
+            val = float(operand)
+        except (TypeError, ValueError):
+            return None
+        if op == '+':
+            result += val
+        elif op == '-':
+            result -= val
+        i += 2
+
+    return result
 
 
 def _resolve_field(path: Any, payload_dict: Dict[str, Any]) -> Any:
@@ -114,9 +215,20 @@ def _resolve_field(path: Any, payload_dict: Dict[str, Any]) -> Any:
     if not isinstance(path, str):
         return path
 
-    # --- today() / CURRENT_DATE
-    if path.strip().lower() in ("today()", "current_date"):
+    # --- today() / CURRENT_DATE / system.current_date
+    if path.strip().lower() in ("today()", "current_date", "system.current_date"):
         return datetime.date.today()
+
+    # --- abs() wrapper: abs(A + B - C) ----------------------------------------
+    abs_match = _ABS_RE.match(path.strip())
+    if abs_match:
+        inner_result = _resolve_compound_expression(abs_match.group(1), payload_dict)
+        if inner_result is not None:
+            try:
+                return abs(float(inner_result))
+            except (TypeError, ValueError):
+                return None
+        return None
 
     # --- Try numeric literal FIRST (before dot-notation check)
     # IMPORTANT: floats like "1.10", "0.99" contain a "." and would otherwise
@@ -269,22 +381,35 @@ def _eval_neq(left: Any, right: Any) -> bool:
 
 def _eval_pct_diff(left: Any, right: Any, threshold: float, direction: str) -> bool:
     """
-    abs(left - right) / right * 100 compared against threshold.
-    direction "above" → fires when pct_diff > threshold.
-    direction "below" → fires when pct_diff < threshold.
-    direction "both"  → fires when pct_diff > threshold (symmetric tolerance).
+    Percentage difference evaluation with directional awareness.
+
+    direction "above"  → fires when left is ABOVE right by more than threshold%.
+    direction "below"  → fires when left is BELOW right by more than threshold%.
+    direction "both"   → fires when abs difference exceeds threshold% in either direction.
+    direction "within" → fires when abs difference is WITHIN threshold% (inclusive).
+    direction "cap"    → fires when abs difference is BELOW threshold% (ceiling).
+    direction is None  → treated as "both" (symmetric exceeds check).
     """
     l, r = float(left), float(right)
     if r == 0:
         return False
     pct = abs(l - r) / r * 100
+
     if direction == "above":
-        return pct > threshold
+        # Only fire when left is actually ABOVE right
+        return l > r and pct > threshold
     elif direction == "below":
+        # Only fire when left is actually BELOW right
+        return l < r and pct > threshold
+    elif direction == "within":
+        # Fire when within tolerance (e.g. auto-approve if within ±2%)
+        return pct <= threshold
+    elif direction == "cap":
+        # Fire when percentage is under a ceiling cap (e.g. "less than 15%")
         return pct < threshold
-    elif direction == "both":
+    else:
+        # "both" or None — symmetric: fire if abs diff exceeds threshold
         return pct > threshold
-    return False
 
 
 def _eval_between(left: Any, lower: Any, upper: Any) -> bool:
@@ -511,9 +636,16 @@ def _evaluate_condition(cond: Dict[str, Any], payload_dict: Dict[str, Any]) -> T
     right_val = _resolve_field(right_path, payload_dict)
 
     # Check for missing required fields
-    if left_val is None and isinstance(left_path, str) and "." in left_path and "[*]" not in left_path:
+    def _is_field_reference(p):
+        """Check if a path looks like a field reference (not a literal)."""
+        if not isinstance(p, str):
+            return False
+        s = p.strip()
+        return ("." in s and "[*]" not in s) or s.lower().startswith("abs(")
+
+    if left_val is None and _is_field_reference(left_path):
         raise SkipEvaluation(f"Field '{left_path}' is missing or null in payload")
-    if right_val is None and isinstance(right_path, str) and "." in right_path and "[*]" not in right_path:
+    if right_val is None and _is_field_reference(right_path):
         raise SkipEvaluation(f"Field '{right_path}' is missing or null in payload")
 
     if operator in OPERATOR_MAP:
@@ -671,6 +803,9 @@ async def execute_rules(body: ExecuteRulesRequest) -> ExecuteRulesResponse:
     # This fixes any rules where the LLM used left/right instead of operands.
     # Must happen before the engine loop, not inside evaluate_condition.
     _normalize_and_or_structure(state.active_ruleset)
+
+    # PRE-EXECUTION: fix PCT_DIFF direction semantics
+    _normalize_pct_diff_conditions(state.active_ruleset)
 
     results: List[RuleExecutionResult] = []
     for rule in state.active_ruleset:
