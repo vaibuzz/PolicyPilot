@@ -71,8 +71,8 @@ class Rule(BaseModel):
     action: str
     requires_justification: bool = False
     notification: Optional[NotificationConfig] = None
-    confidence_score: float = Field(ge=0.0, le=1.0)
-    raw_text: str
+    confidence_score: float = Field(default=0.85, ge=0.0, le=1.0)
+    raw_text: str = Field(default="Text omitted by extractor")
     conflict_with: List[str] = Field(default_factory=list)
     suggested_fix: Optional[Dict[str, Any]] = None
     review_status: ReviewStatusType = "pending"
