@@ -125,6 +125,7 @@ export default function ReviewScreen() {
             rules={rules}
             onFinalize={handleFinalize}
             finalizing={finalizing}
+            isFinalized={finalizeSuccess}
             onFlaggedClick={scrollToNextFlag}
             onGraphClick={toggleGraphPanel}
             graphPanelOpen={graphPanelOpen}

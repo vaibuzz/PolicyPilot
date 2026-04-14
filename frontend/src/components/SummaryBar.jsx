@@ -67,7 +67,7 @@ function GraphIcon({ className = 'w-4 h-4' }) {
   )
 }
 
-export default function SummaryBar({ rules, onFinalize, finalizing, onFlaggedClick, onGraphClick, graphPanelOpen, fallbackActive }) {
+export default function SummaryBar({ rules, onFinalize, finalizing, isFinalized, onFlaggedClick, onGraphClick, graphPanelOpen, fallbackActive }) {
   const total = rules.length
   const flagged = rules.filter(
     (r) => r.confidence_score < 0.9 || r.conflict_with?.length > 0
@@ -122,13 +122,13 @@ export default function SummaryBar({ rules, onFinalize, finalizing, onFlaggedCli
 
       <div className="flex items-center gap-3">
 
-        {/* Rule Graph — left of Next Flag, flows purple, unlocks when all flags resolved */}
+        {/* Rule Graph — left of Next Flag, flows purple, unlocks when rules are finalized */}
         <button
           onClick={onGraphClick}
-          disabled={!allFlaggedResolved || !total}
-          title={allFlaggedResolved ? 'View Rule Decision Graph' : 'Resolve all flags first'}
+          disabled={!isFinalized || !total}
+          title={isFinalized ? 'View Rule Decision Graph' : 'Finalize rules first'}
           className={`px-5 py-2.5 rounded-xl font-semibold text-sm transition-all duration-300 flex items-center gap-2 ${
-            allFlaggedResolved && total > 0
+            isFinalized && total > 0
               ? graphPanelOpen
                 ? 'bg-gradient-to-r from-violet-500 to-purple-500 text-white border border-violet-400/60 shadow-[0_0_20px_rgba(139,92,246,0.7)] scale-[1.02]'
                 : 'bg-gradient-to-r from-violet-600 to-purple-600 hover:from-violet-500 hover:to-purple-500 text-white border border-violet-500/50 shadow-[0_0_15px_rgba(139,92,246,0.4)] animate-pulse-slow'

@@ -9,7 +9,7 @@
  *  - Graceful error display, spinner while loading
  */
 import React, { useState, useEffect, useRef, useCallback } from 'react'
-import { generateRuleGraph } from '../api/client'
+import { generateRuleGraph, getActiveRules } from '../api/client'
 
 // ── Mermaid CDN ──────────────────────────────────────────────────────────────
 
@@ -119,14 +119,19 @@ export default function RuleGraphPanel({ open, onClose, rules, onWidthChange }) 
 
   // ── Graph render ─────────────────────────────────────────────────────────
 
-  const renderGraph = useCallback(async (snapshot) => {
-    if (!snapshot || snapshot.length === 0) {
-      setSvgContent(''); setError('No rules to graph.'); return
-    }
+  const renderGraph = useCallback(async () => {
     setLoading(true); setError('')
     const id = ++renderIdRef.current
     try {
-      const res = await generateRuleGraph(snapshot)
+      const activeRes = await getActiveRules()
+      const finalizedRules = activeRes.data.rules
+      if (!finalizedRules || finalizedRules.length === 0) {
+        if (id !== renderIdRef.current) return
+        setSvgContent(''); setError('No active rules found. Please finalize rules first.')
+        return
+      }
+      
+      const res = await generateRuleGraph(finalizedRules)
       const mermaidStr = res.data.mermaid
       if (id !== renderIdRef.current) return
       const mermaid = await loadMermaid()
@@ -144,13 +149,13 @@ export default function RuleGraphPanel({ open, onClose, rules, onWidthChange }) 
     }
   }, [])
 
-  // Debounce re-render when rules change while panel is open
+  // Debounce re-render when panel is open
   useEffect(() => {
     if (!open) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
-    debounceRef.current = setTimeout(() => renderGraph(rules), 500)
+    debounceRef.current = setTimeout(() => renderGraph(), 500)
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current) }
-  }, [open, rules, renderGraph])
+  }, [open, renderGraph])
 
   // ── Resize drag handle ───────────────────────────────────────────────────
 
