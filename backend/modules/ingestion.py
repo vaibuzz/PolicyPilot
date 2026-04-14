@@ -32,16 +32,15 @@ try:
 except Exception as e:
     logger.warning(f"⚠️  Docling not available ({e}). Checking PyMuPDF fallback...")
 
-if not _DOCLING_AVAILABLE:
-    try:
-        import fitz  # PyMuPDF  # type: ignore
-        _PYMUPDF_AVAILABLE = True
-        logger.info("✅ PyMuPDF (fitz) is available — will use as PDF fallback")
-    except Exception as e:
-        logger.error(
-            f"❌ Neither Docling nor PyMuPDF is available ({e}). "
-            "PDF uploads will fail. Install at least one parser."
-        )
+try:
+    import fitz  # PyMuPDF  # type: ignore
+    _PYMUPDF_AVAILABLE = True
+    logger.info("✅ PyMuPDF (fitz) is available — will use as PDF fallback")
+except Exception as e:
+    logger.error(
+        f"❌ Neither Docling nor PyMuPDF is available ({e}). "
+        "PDF uploads will fail. Install at least one parser."
+    )
 
 
 # ---------------------------------------------------------------------------

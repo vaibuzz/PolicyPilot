@@ -40,12 +40,11 @@ try:
 except Exception:
     pass
 
-if not _DOCLING_AVAILABLE:
-    try:
-        import fitz  # type: ignore
-        _PYMUPDF_AVAILABLE = True
-    except Exception:
-        pass
+try:
+    import fitz  # type: ignore
+    _PYMUPDF_AVAILABLE = True
+except Exception:
+    pass
 
 
 # ---------------------------------------------------------------------------
