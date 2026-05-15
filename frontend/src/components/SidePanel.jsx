@@ -6,10 +6,103 @@ import React, { useState, useRef } from 'react'
 import { extractDocuments, executeRules, sendReport } from '../api/client'
 
 const STATUS_CONFIG = {
-  PASS:    { label: 'Pass',    cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
-  VIOLATION:    { label: 'Violation',    cls: 'bg-red-500/20 text-red-300 border-red-500/30' },
-  SKIPPED: { label: 'Skipped', cls: 'bg-slate-500/20 text-slate-400 border-slate-500/30' },
+  PASS:      { label: 'Pass',      cls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' },
+  VIOLATION: { label: 'Violation', cls: 'bg-red-500/20 text-red-300 border-red-500/30' },
+  SKIPPED:   { label: 'Skipped',   cls: 'bg-slate-500/20 text-slate-400 border-slate-500/30' },
 }
+
+/** Derive the action type from the results array */
+function deriveActionType(results) {
+  if (!results) return null
+  const violations = results.filter(r => r.status === 'VIOLATION')
+  if (violations.length === 0) return 'CRM'
+
+  const actions = violations.map(r => (r.action || '').toUpperCase())
+
+  if (actions.some(a => /HOLD/.test(a)))       return 'HOLD'
+  if (actions.some(a => /REJECT/.test(a)))      return 'REJECT'
+  if (actions.some(a => /FLAG/.test(a)))        return 'FLAG'
+  if (actions.some(a => /COMPLIANCE/.test(a)))  return 'COMPLIANCE'
+  if (actions.some(a =>
+    /ESCALATE|ROUTE|APPROVE|DEPARTMENT|PERSON|CLERK|HEAD|CFO|CONTROLLER|PROCUREMENT/.test(a)
+  ))                                             return 'APPROVAL'
+
+  return 'FLAG'
+}
+
+/** Config for each action type — icon, title, body, colours */
+const ACTION_CONFIG = {
+  CRM: {
+    icon: '✅',
+    iconBg: 'bg-emerald-500/20 border-emerald-500/30',
+    iconColor: 'text-emerald-400',
+    title: 'Added to CRM',
+    body: 'All rules passed. This invoice and PO have been logged as COMPLIANT and added to the CRM system.',
+    pill: 'COMPLIANT',
+    pillCls: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30',
+    btnCls: 'bg-emerald-600 hover:bg-emerald-500',
+    btnLabel: 'Done',
+  },
+  APPROVAL: {
+    icon: '📤',
+    iconBg: 'bg-blue-500/20 border-blue-500/30',
+    iconColor: 'text-blue-400',
+    title: 'Sent for Approval',
+    body: 'One or more rules require human review. The document has been routed to the relevant approver / department for sign-off.',
+    pill: 'PENDING APPROVAL',
+    pillCls: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+    btnCls: 'bg-blue-600 hover:bg-blue-500',
+    btnLabel: 'Understood',
+  },
+  HOLD: {
+    icon: '🗂️',
+    iconBg: 'bg-amber-500/20 border-amber-500/30',
+    iconColor: 'text-amber-400',
+    title: 'Added to Hold Folder',
+    body: 'The invoice has been placed in the Hold queue pending resolution of flagged conditions. No payment will be processed until holds are cleared.',
+    pill: 'ON HOLD',
+    pillCls: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+    btnCls: 'bg-amber-600 hover:bg-amber-500',
+    btnLabel: 'Got it',
+  },
+  REJECT: {
+    icon: '🚫',
+    iconBg: 'bg-red-500/20 border-red-500/30',
+    iconColor: 'text-red-400',
+    title: 'Invoice Rejected',
+    body: 'This invoice has been rejected and returned to the vendor. A rejection notice has been logged in the audit trail.',
+    pill: 'REJECTED',
+    pillCls: 'bg-red-500/20 text-red-300 border-red-500/30',
+    btnCls: 'bg-red-600 hover:bg-red-500',
+    btnLabel: 'Close',
+  },
+  FLAG: {
+    icon: '🚩',
+    iconBg: 'bg-orange-500/20 border-orange-500/30',
+    iconColor: 'text-orange-400',
+    title: 'Flagged for Review',
+    body: 'The document has been flagged and assigned to the AP team for manual review. It will remain in the review queue until resolved.',
+    pill: 'FLAGGED',
+    pillCls: 'bg-orange-500/20 text-orange-300 border-orange-500/30',
+    btnCls: 'bg-orange-600 hover:bg-orange-500',
+    btnLabel: 'Acknowledged',
+  },
+  COMPLIANCE: {
+    icon: '⚖️',
+    iconBg: 'bg-purple-500/20 border-purple-500/30',
+    iconColor: 'text-purple-400',
+    title: 'Compliance Hold Applied',
+    body: 'A compliance violation was detected. The document has been placed under a compliance hold and routed to the internal audit team.',
+    pill: 'COMPLIANCE HOLD',
+    pillCls: 'bg-purple-500/20 text-purple-300 border-purple-500/30',
+    btnCls: 'bg-purple-600 hover:bg-purple-500',
+    btnLabel: 'Acknowledged',
+  },
+}
+
+// ---------------------------------------------------------------------------
+// Sub-components
+// ---------------------------------------------------------------------------
 
 function UploadZone({ label, sublabel, file, onChange, accept = '.pdf' }) {
   const inputRef = useRef()
@@ -73,7 +166,9 @@ function ResultRow({ result }) {
         <div className="px-3 pb-3 text-xs text-slate-400 border-t border-slate-700/50 mt-1 pt-2">
           <p className="text-slate-300">{result.deviation_details.reason}</p>
           {result.action && (
-            <p className="mt-1 text-amber-400">→ Action: {result.action.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</p>
+            <p className="mt-1 text-amber-400">
+              → Action: {result.action.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
+            </p>
           )}
         </div>
       )}
@@ -81,18 +176,93 @@ function ResultRow({ result }) {
   )
 }
 
+/** Full-screen modal popup confirming what action was taken */
+function ActionPopup({ actionType, invoiceNumber, onDone }) {
+  const cfg = ACTION_CONFIG[actionType] || ACTION_CONFIG.FLAG
+
+  return (
+    /* Backdrop */
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
+      {/* Card */}
+      <div className="relative w-full max-w-sm bg-slate-900 border border-slate-700/60 rounded-2xl shadow-2xl overflow-hidden animate-slide-up">
+
+        {/* Coloured top stripe */}
+        <div className={`h-1 w-full ${cfg.btnCls.split(' ')[0]}`} />
+
+        <div className="p-6 space-y-5">
+          {/* Icon + pill */}
+          <div className="flex items-center gap-3">
+            <span className={`text-3xl w-14 h-14 flex items-center justify-center rounded-xl border ${cfg.iconBg}`}>
+              {cfg.icon}
+            </span>
+            <div>
+              <span className={`inline-block px-2 py-0.5 rounded text-xs font-semibold border ${cfg.pillCls}`}>
+                {cfg.pill}
+              </span>
+              <h3 className="text-white font-bold text-lg mt-1 leading-tight">{cfg.title}</h3>
+            </div>
+          </div>
+
+          {/* Invoice number badge */}
+          {invoiceNumber && (
+            <div className="flex items-center gap-2 bg-slate-800/60 border border-slate-700/40 rounded-lg px-3 py-2">
+              <span className="text-slate-500 text-xs">Invoice</span>
+              <span className="font-mono text-cyan-400 text-sm font-medium">{invoiceNumber}</span>
+            </div>
+          )}
+
+          {/* Body text */}
+          <p className="text-slate-300 text-sm leading-relaxed">{cfg.body}</p>
+
+          {/* Timestamp */}
+          <p className="text-slate-600 text-xs">
+            Action recorded at {new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+          </p>
+
+          {/* CTA */}
+          <button
+            onClick={onDone}
+            className={`w-full py-2.5 rounded-xl text-white font-semibold text-sm transition-all ${cfg.btnCls}`}
+          >
+            {cfg.btnLabel} — Upload Next Document
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Main panel
+// ---------------------------------------------------------------------------
+
 export default function SidePanel({ open, onClose }) {
-  const [files, setFiles] = useState({ invoice: null, po: null, grn: null })
-  const [loading, setLoading] = useState(false)
+  const [files, setFiles]         = useState({ invoice: null, po: null, grn: null })
+  const [loading, setLoading]     = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
-  const [results, setResults] = useState(null)
-  const [payload, setPayload] = useState(null)
-  const [error, setError] = useState('')
-  const [sending, setSending] = useState(false)
-  const [sent, setSent] = useState(false)
+  const [results, setResults]     = useState(null)
+  const [payload, setPayload]     = useState(null)
+  const [error, setError]         = useState('')
+  const [sending, setSending]     = useState(false)
+  // popup state
+  const [showPopup, setShowPopup] = useState(false)
+  const [popupAction, setPopupAction] = useState(null)
+  const [popupInvoice, setPopupInvoice] = useState(null)
 
   function setFile(key) {
     return (file) => setFiles((f) => ({ ...f, [key]: file }))
+  }
+
+  /** Reset everything back to the empty upload screen */
+  function resetPanel() {
+    setFiles({ invoice: null, po: null, grn: null })
+    setResults(null)
+    setPayload(null)
+    setError('')
+    setSending(false)
+    setShowPopup(false)
+    setPopupAction(null)
+    setPopupInvoice(null)
   }
 
   async function handleRunAnalysis() {
@@ -103,7 +273,6 @@ export default function SidePanel({ open, onClose }) {
     setError('')
     setResults(null)
     setLoading(true)
-    setSent(false)
 
     try {
       setLoadingMsg('Extracting document data…')
@@ -123,14 +292,19 @@ export default function SidePanel({ open, onClose }) {
   }
 
   async function handleAction() {
-    if (!results) return
+    if (!results || sending) return
     setSending(true)
     setError('')
+
+    const actionType   = deriveActionType(results)
+    const invoiceNum   = payload?.Invoice_table?.invoice_number ?? null
+
     try {
-      const invoiceNum = payload?.Invoice_table?.invoice_number ?? null
-      // Pass a default email since the input was removed
       await sendReport(results, 'system@crm.local', invoiceNum)
-      setSent(true)
+      // Show contextual confirmation popup
+      setPopupAction(actionType)
+      setPopupInvoice(invoiceNum)
+      setShowPopup(true)
     } catch (e) {
       setError(e.response?.data?.detail || e.message || 'Action failed.')
     } finally {
@@ -138,32 +312,36 @@ export default function SidePanel({ open, onClose }) {
     }
   }
 
-  // Determine button text based on results
+  // Determine action button label from results
   let buttonText = 'Process Document'
   if (results) {
-    const violations = results.filter(r => r.status === 'VIOLATION')
-    if (violations.length === 0) {
-      buttonText = 'Add in the CRM'
-    } else {
-      const needsApproval = violations.some(r => r.action && /(escalate|approv|route|review|department|person)/i.test(r.action))
-      const allHold = violations.every(r => r.action && /hold/i.test(r.action))
-
-      if (needsApproval) {
-        buttonText = 'Send for Approval'
-      } else if (allHold) {
-        buttonText = 'Add in Hold Files'
-      } else {
-        buttonText = 'Flag for Review'
-      }
+    const t = deriveActionType(results)
+    const labels = {
+      CRM: '✅ Add to CRM',
+      APPROVAL: '📤 Send for Approval',
+      HOLD: '🗂️ Add to Hold Files',
+      REJECT: '🚫 Reject Invoice',
+      FLAG: '🚩 Flag for Review',
+      COMPLIANCE: '⚖️ Apply Compliance Hold',
     }
+    buttonText = labels[t] || 'Process Document'
   }
 
-  const passed  = results?.filter((r) => r.status === 'PASS').length ?? 0
-  const failed  = results?.filter((r) => r.status === 'VIOLATION').length ?? 0
-  const skipped = results?.filter((r) => r.status === 'SKIPPED').length ?? 0
+  const passed  = results?.filter((r) => r.status === 'PASS').length      ?? 0
+  const failed  = results?.filter((r) => r.status === 'VIOLATION').length  ?? 0
+  const skipped = results?.filter((r) => r.status === 'SKIPPED').length   ?? 0
 
   return (
     <>
+      {/* Action confirmation popup */}
+      {showPopup && (
+        <ActionPopup
+          actionType={popupAction}
+          invoiceNumber={popupInvoice}
+          onDone={resetPanel}      /* closes popup AND resets the upload screen */
+        />
+      )}
+
       {/* Backdrop */}
       {open && (
         <div
@@ -210,10 +388,7 @@ export default function SidePanel({ open, onClose }) {
               file={files.po}
               onChange={setFile('po')}
             />
-
           </div>
-
-
 
           {/* Run Analysis */}
           <button
@@ -264,7 +439,9 @@ export default function SidePanel({ open, onClose }) {
                     : 'bg-red-500/10 text-red-400 border border-red-500/20'
                 }`}
               >
-                {failed === 0 ? '✓ COMPLIANT' : `✗ NON-COMPLIANT — ${failed} violation${failed > 1 ? 's' : ''}`}
+                {failed === 0
+                  ? '✓ COMPLIANT'
+                  : `✗ NON-COMPLIANT — ${failed} violation${failed > 1 ? 's' : ''}`}
               </div>
 
               {/* Rule rows */}
@@ -277,14 +454,21 @@ export default function SidePanel({ open, onClose }) {
               {/* Dynamic Action Button */}
               <button
                 onClick={handleAction}
-                disabled={sending || sent}
-                className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-all ${
-                  sent
-                    ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-500/20'
-                } disabled:opacity-50`}
+                disabled={sending}
+                className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-all
+                  bg-gradient-to-r from-blue-600 to-indigo-600
+                  hover:from-blue-500 hover:to-indigo-500
+                  text-white shadow-lg shadow-blue-500/20
+                  disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                {sent ? '✓ Action Completed' : sending ? 'Processing…' : buttonText}
+                {sending ? (
+                  <span className="flex items-center justify-center gap-2">
+                    <span className="inline-block w-4 h-4 border-2 border-blue-300 border-t-transparent rounded-full animate-spin" />
+                    Processing…
+                  </span>
+                ) : (
+                  buttonText
+                )}
               </button>
             </div>
           )}
