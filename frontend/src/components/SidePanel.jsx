@@ -73,7 +73,7 @@ function ResultRow({ result }) {
         <div className="px-3 pb-3 text-xs text-slate-400 border-t border-slate-700/50 mt-1 pt-2">
           <p className="text-slate-300">{result.deviation_details.reason}</p>
           {result.action && (
-            <p className="mt-1 text-amber-400">→ Action: {result.action}</p>
+            <p className="mt-1 text-amber-400">→ Action: {result.action.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}</p>
           )}
         </div>
       )}
@@ -83,7 +83,6 @@ function ResultRow({ result }) {
 
 export default function SidePanel({ open, onClose }) {
   const [files, setFiles] = useState({ invoice: null, po: null, grn: null })
-  const [email, setEmail] = useState('')
   const [loading, setLoading] = useState(false)
   const [loadingMsg, setLoadingMsg] = useState('')
   const [results, setResults] = useState(null)
@@ -104,6 +103,7 @@ export default function SidePanel({ open, onClose }) {
     setError('')
     setResults(null)
     setLoading(true)
+    setSent(false)
 
     try {
       setLoadingMsg('Extracting document data…')
@@ -122,19 +122,39 @@ export default function SidePanel({ open, onClose }) {
     }
   }
 
-  async function handleSendReport() {
-    if (!email) { setError('Enter a recipient email.'); return }
+  async function handleAction() {
     if (!results) return
     setSending(true)
     setError('')
     try {
       const invoiceNum = payload?.Invoice_table?.invoice_number ?? null
-      await sendReport(results, email, invoiceNum)
+      // Pass a default email since the input was removed
+      await sendReport(results, 'system@crm.local', invoiceNum)
       setSent(true)
     } catch (e) {
-      setError(e.response?.data?.detail || e.message || 'Failed to send report.')
+      setError(e.response?.data?.detail || e.message || 'Action failed.')
     } finally {
       setSending(false)
+    }
+  }
+
+  // Determine button text based on results
+  let buttonText = 'Process Document'
+  if (results) {
+    const violations = results.filter(r => r.status === 'VIOLATION')
+    if (violations.length === 0) {
+      buttonText = 'Add in the CRM'
+    } else {
+      const needsApproval = violations.some(r => r.action && /(escalate|approv|route|review|department|person)/i.test(r.action))
+      const allHold = violations.every(r => r.action && /hold/i.test(r.action))
+
+      if (needsApproval) {
+        buttonText = 'Send for Approval'
+      } else if (allHold) {
+        buttonText = 'Add in Hold Files'
+      } else {
+        buttonText = 'Flag for Review'
+      }
     }
   }
 
@@ -154,7 +174,7 @@ export default function SidePanel({ open, onClose }) {
 
       {/* Drawer */}
       <div
-        className={`fixed top-0 right-0 h-full w-full max-w-lg bg-slate-900 border-l border-slate-700/50 z-30 overflow-y-auto shadow-2xl transition-transform duration-300 ${
+        className={`fixed top-0 right-0 h-full w-full sm:w-[60vw] bg-slate-900 border-l border-slate-700/50 z-30 overflow-y-auto shadow-2xl transition-transform duration-300 ${
           open ? 'translate-x-0 animate-slide-in' : 'translate-x-full'
         }`}
       >
@@ -193,19 +213,7 @@ export default function SidePanel({ open, onClose }) {
 
           </div>
 
-          {/* Email */}
-          <div>
-            <label className="block text-sm font-medium text-slate-300 mb-1.5">
-              Report Email
-            </label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="ap-team@company.com"
-              className="w-full bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-cyan-500 transition-colors"
-            />
-          </div>
+
 
           {/* Run Analysis */}
           <button
@@ -266,17 +274,17 @@ export default function SidePanel({ open, onClose }) {
                 ))}
               </div>
 
-              {/* Send report */}
+              {/* Dynamic Action Button */}
               <button
-                onClick={handleSendReport}
+                onClick={handleAction}
                 disabled={sending || sent}
                 className={`w-full py-2.5 rounded-xl font-semibold text-sm transition-all ${
                   sent
                     ? 'bg-emerald-900/40 text-emerald-400 border border-emerald-500/30'
-                    : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-600'
+                    : 'bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white shadow-lg shadow-blue-500/20'
                 } disabled:opacity-50`}
               >
-                {sent ? '✓ Report Sent' : sending ? 'Sending…' : '📧 Send Report'}
+                {sent ? '✓ Action Completed' : sending ? 'Processing…' : buttonText}
               </button>
             </div>
           )}
