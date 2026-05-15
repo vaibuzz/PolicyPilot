@@ -24,6 +24,13 @@ from modules.doc_extraction import router as doc_extraction_router
 from modules.reporting import router as reporting_router
 from modules.rule_graph import router as rule_graph_router
 
+# SQLite cache helpers (built-in sqlite3, zero dependencies)
+try:
+    from db.cache_db import list_cached_policies, delete_cached_extraction
+    _DB_CACHE_AVAILABLE = True
+except Exception:
+    _DB_CACHE_AVAILABLE = False
+
 app = FastAPI(
     title="PolicyPilot",
     description="AP Policy Rule Extraction and Execution System",
@@ -60,6 +67,34 @@ app.include_router(rule_graph_router, tags=["Module 7 — Rule Graph"])
 @app.get("/", tags=["Health"])
 def health() -> dict:
     return {"status": "ok", "service": "PolicyPilot API"}
+
+
+@app.get("/cached-policies", tags=["Cache Admin"])
+def cached_policies() -> dict:
+    """
+    Returns a summary list of all policy documents stored in the SQLite extraction cache.
+    Useful for debugging and verifying that repeat uploads are being served from cache.
+    """
+    if not _DB_CACHE_AVAILABLE:
+        return {"available": False, "entries": [], "message": "DB cache module not loaded."}
+    entries = list_cached_policies()
+    return {"available": True, "count": len(entries), "entries": entries}
+
+
+@app.delete("/cached-policies/{doc_hash}", tags=["Cache Admin"])
+def delete_cached_policy(doc_hash: str) -> dict:
+    """
+    Delete a single cache entry by its doc_hash.
+    Use this to force a fresh LLM extraction on the next upload of the same document.
+    """
+    if not _DB_CACHE_AVAILABLE:
+        return {"deleted": False, "message": "DB cache module not loaded."}
+    deleted = delete_cached_extraction(doc_hash)
+    return {
+        "deleted": deleted,
+        "doc_hash": doc_hash,
+        "message": "Cache entry deleted." if deleted else "No entry found for that hash.",
+    }
 
 
 if __name__ == "__main__":

@@ -7,6 +7,12 @@ Makes two sequential LLM API calls (Anthropic Claude primary, Groq fallback):
   Call 2 — Conflict detection across extracted rules
 
 Returns a merged ExtractionResponse combining both results.
+
+Cache priority (per request):
+  1. SQLite DB  (backend/db/policy_cache.db)  — always checked first
+  2. File cache (backend/cache/*.json)         — checked if SAVE_EXTRACTION_CACHE=true
+  3. Live LLM calls                            — runs if both caches miss
+On a cache miss, results are saved to BOTH the DB and the file cache.
 """
 
 import asyncio
@@ -30,6 +36,18 @@ from models.schemas import (
     KNOWN_ACTIONS,
     Rule,
 )
+
+# SQLite cache — zero external dependencies (Python built-in sqlite3)
+try:
+    from db.cache_db import get_cached_extraction, save_extraction
+    _DB_CACHE_AVAILABLE = True
+except Exception as _db_import_err:
+    _DB_CACHE_AVAILABLE = False
+    get_cached_extraction = None  # type: ignore
+    save_extraction = None  # type: ignore
+    logging.getLogger(__name__).warning(
+        f"[DB CACHE] Could not import cache_db — DB caching disabled: {_db_import_err}"
+    )
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -850,8 +868,17 @@ def _run_extraction_sync(
     primary_client: Any,
     primary_type: str,
     fallback_client: Any,
-) -> ExtractionResponse:
-    """Blocking function: two sequential LLM calls. Called via asyncio.to_thread."""
+) -> Tuple[ExtractionResponse, str, str]:
+    """
+    Blocking function: two sequential LLM calls. Called via asyncio.to_thread.
+
+    Returns:
+        (ExtractionResponse, raw_llm_rules_json, raw_llm_conflicts_json)
+
+    The raw LLM strings are returned separately so the endpoint can persist
+    them to the DB cache exactly as the model produced them — before any
+    normalization, remapping, or schema validation has touched them.
+    """
 
     # ---- Call 1: Rule Extraction ----------------------------------------
     logger.info(f"Starting LLM Call 1 — Rule Extraction (provider: {primary_type})")
@@ -863,6 +890,7 @@ def _run_extraction_sync(
         response_format_json=(primary_type == "groq"),
     )
     logger.info(f"Call 1 complete. Raw length: {len(raw_rules_json)} chars")
+    # ↑ raw_rules_json captured here — this is the unprocessed LLM string
 
     rules_list = _safe_parse_json_array(raw_rules_json, "Rule Extraction (Call 1)")
 
@@ -906,6 +934,7 @@ def _run_extraction_sync(
         response_format_json=(primary_type == "groq"),
     )
     logger.info(f"Call 2 complete. Raw length: {len(raw_conflicts_json)} chars")
+    # ↑ raw_conflicts_json captured here — this is the unprocessed LLM string
 
     conflicts_list = _safe_parse_json_array(raw_conflicts_json, "Conflict Detection (Call 2)")
 
@@ -926,7 +955,7 @@ def _run_extraction_sync(
             confidence = float(rule.get("confidence_score", 0.0))
         except (ValueError, TypeError):
             confidence = 0.0
-            
+
         has_conflicts = len(rule.get("conflict_with", [])) > 0
         if confidence >= 0.9 and not has_conflicts:
             rule["review_status"] = "accepted"
@@ -935,12 +964,15 @@ def _run_extraction_sync(
     validated_rules = [Rule.model_validate(r) for r in merged_rules]
     validated_conflicts = [ConflictObject.model_validate(c) for c in conflicts_list]
 
-    return ExtractionResponse(
+    response = ExtractionResponse(
         rules=validated_rules,
         conflicts=validated_conflicts,
         summary=summary,
         fallback_active=(fallback_used_1 or fallback_used_2),
     )
+    # Return the raw LLM strings alongside the processed response so the
+    # endpoint can store them in the DB cache independently.
+    return response, raw_rules_json, raw_conflicts_json
 
 
 # ---------------------------------------------------------------------------
@@ -955,24 +987,81 @@ async def extract_rules(body: ExtractRulesRequest) -> ExtractionResponse:
       2. Detect conflicts across extracted rules
     Returns merged result.
 
-    If SAVE_EXTRACTION_CACHE=true in .env and a cache file for this exact
-    document already exists, returns the cached result immediately (zero tokens).
+    Cache priority (checked in order, first hit wins):
+      1. SQLite DB  (backend/db/policy_cache.db)  — always active, zero setup
+      2. File cache (backend/cache/*.json)         — active when SAVE_EXTRACTION_CACHE=true
+      3. Live LLM calls                            — runs only on a double cache miss
+
+    On a live extraction, results are saved to BOTH the DB and the file cache
+    so both fallback layers stay warm for future requests.
     """
     try:
-        # ---- Cache check (no API call if hit) ----------------------------
-        cached = _load_cache(body.markdown)
-        if cached is not None:
-            return ExtractionResponse.model_validate(cached)
+        doc_hash = hashlib.sha256(body.markdown.encode("utf-8")).hexdigest()[:16]
 
-        # ---- Cache miss: run real extraction -----------------------------
+        # ---- Layer 1: SQLite DB cache (primary) --------------------------
+        if _DB_CACHE_AVAILABLE:
+            db_hit = get_cached_extraction(doc_hash)
+            if db_hit is not None:
+                _raw_rules, _raw_conflicts, result_dict = db_hit
+                logger.info(
+                    f"[CACHE] DB HIT for doc_hash={doc_hash} — "
+                    "returning cached ExtractionResponse (no LLM calls)."
+                )
+                return ExtractionResponse.model_validate(result_dict)
+
+        # ---- Layer 2: File cache fallback --------------------------------
+        file_cached = _load_cache(body.markdown)
+        if file_cached is not None:
+            logger.info(
+                f"[CACHE] FILE HIT for doc_hash={doc_hash} — "
+                "returning file-cached ExtractionResponse (no LLM calls)."
+            )
+            # Promote file-cache hit into the DB so next request is faster
+            if _DB_CACHE_AVAILABLE:
+                try:
+                    save_extraction(
+                        doc_hash=doc_hash,
+                        filename="(promoted-from-file-cache)",
+                        raw_llm_rules_json="",
+                        raw_llm_conflicts_json="",
+                        extraction_result=file_cached,
+                    )
+                    logger.info(
+                        f"[CACHE] Promoted file-cache entry into DB for doc_hash={doc_hash}."
+                    )
+                except Exception as promote_err:
+                    logger.warning(f"[CACHE] File→DB promotion failed: {promote_err}")
+            return ExtractionResponse.model_validate(file_cached)
+
+        # ---- Layer 3: Double cache miss — run live LLM extraction --------
+        logger.info(
+            f"[CACHE] MISS for doc_hash={doc_hash} — starting live LLM extraction."
+        )
         primary_type, primary_client, fallback_client = get_llm_client()
-        result = await asyncio.to_thread(
+        result, raw_rules_json, raw_conflicts_json = await asyncio.to_thread(
             _run_extraction_sync, body.markdown,
             primary_client, primary_type, fallback_client,
         )
 
-        # ---- Persist result for future runs ------------------------------
-        _save_cache(body.markdown, result.model_dump(mode="json"))
+        result_dict = result.model_dump(mode="json")
+
+        # ---- Persist to DB (primary store — saves raw LLM strings too) --
+        if _DB_CACHE_AVAILABLE:
+            try:
+                # filename is not available in this endpoint (only markdown is
+                # sent); use a placeholder — ingestion.py has the real filename.
+                save_extraction(
+                    doc_hash=doc_hash,
+                    filename="(unknown — uploaded via /extract-rules)",
+                    raw_llm_rules_json=raw_rules_json,
+                    raw_llm_conflicts_json=raw_conflicts_json,
+                    extraction_result=result_dict,
+                )
+            except Exception as db_err:
+                logger.warning(f"[CACHE] DB save failed (non-fatal): {db_err}")
+
+        # ---- Persist to file cache (fallback store) ----------------------
+        _save_cache(body.markdown, result_dict)
 
         return result
     except HTTPException:

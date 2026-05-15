@@ -1,0 +1,48 @@
+name: Keep HF Space Alive
+
+# Ping the PolicyPilot backend Space every 30 minutes so it never goes
+# into Hugging Face's "sleeping" state on the free tier.
+#
+# Space URL: https://vaibuzzz-policypilot-backend.hf.space
+# (Docker-based Space — the real API endpoint, not the HF page URL)
+#
+# ⚠️  GitHub disables scheduled workflows on repos with NO pushes for 60 days.
+#     Just make a small commit if that ever happens and re-enable it from the
+#     Actions tab.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'   # every 30 minutes, 24/7
+  workflow_dispatch:          # allow manual trigger from Actions tab
+
+jobs:
+  ping:
+    name: Ping HF Space
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Ping PolicyPilot backend health endpoint
+        run: |
+          echo "🏓 Pinging https://vaibuzzz-policypilot-backend.hf.space ..."
+
+          HTTP_STATUS=$(curl \
+            --silent \
+            --output /dev/null \
+            --write-out "%{http_code}" \
+            --max-time 30 \
+            --retry 3 \
+            --retry-delay 10 \
+            "https://vaibuzzz-policypilot-backend.hf.space/")
+
+          echo "📡 HTTP status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" -ge 200 ] && [ "$HTTP_STATUS" -lt 300 ]; then
+            echo "✅ Space is awake and healthy."
+          elif [ "$HTTP_STATUS" -eq 0 ]; then
+            echo "⚠️  No response (Space may be starting up — it will wake on next ping)."
+            exit 0   # don't fail the workflow; Space just needed a cold start
+          else
+            echo "❌ Unexpected status $HTTP_STATUS — check your Space logs."
+            exit 1
+          fi
